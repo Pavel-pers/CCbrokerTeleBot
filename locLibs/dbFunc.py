@@ -7,7 +7,6 @@ import logging
 
 import time
 
-
 dbConn = sqlite3.connect('data/database.db', check_same_thread=False)
 if __name__ == "__main__":
     dbCurr = dbConn.cursor()
@@ -70,7 +69,7 @@ def sqlWorker(workQueue: queue.Queue, finishEvent: threading.Event):
             continue
 
         dbCur.execute(*commandInfo)
-        callback(dbCur, dbConn)
+        callback(dbCur)
 
 
 class SqlRequest:
@@ -83,8 +82,8 @@ class SqlRequest:
         self.processed.wait()
         return self.result
 
-    def callback(self, dbCur, dbConn):
-        self.result = self.onProcesed(dbCur, dbConn)
+    def callback(self, dbCur):
+        self.result = self.onProcesed(dbCur)
         self.processed.set()
 
 
@@ -99,7 +98,7 @@ class SqlLoop:
         self.logger = logger
         self.logger.info('loop started')
 
-    def addTask(self, commInfo, onProcesed):  # returns request class
+    def addTask(self, commInfo, onProcesed) -> SqlRequest:  # returns request class
         request = SqlRequest(commInfo, onProcesed)
         try:
             self.workQ.put_nowait(request)
@@ -115,77 +114,92 @@ class SqlLoop:
 
 
 # point requests
-def addNewPoint(groupId, city, name, workHours):
+def addNewPoint(loop: SqlLoop, groupId, city, name, workHours):
     # TODO add validator
-    dbCur.execute('INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)',
-                  (groupId, city, name, workHours))
-    dbConn.commit()
+    command = (('INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)',
+                (groupId, city, name, workHours)))
+    loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def getPointsByCity(city):
-    dbCur.execute('SELECT * FROM Points WHERE city=?', (city,))
-    return dbCur.fetchall()
+def getPointsByCity(loop: SqlLoop, city):
+    command = ('SELECT * FROM Points WHERE city=?', (city,))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchall())
+    return task.wait()
 
 
-def getPointById(chatId):
-    dbCur.execute('SELECT * FROM Points WHERE id=?', (chatId,))
-    return dbCur.fetchone()
+def getPointById(loop: SqlLoop, chatId):
+    command = ('SELECT * FROM Points WHERE id=?', (chatId,))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
 
 
 # client requests
-def addNewClient(chatId, name, city, bindId):
-    dbCur.execute('SELECT id FROM Clients WHERE id = ?', (chatId,))
-    if dbCur.fetchone() is None:  # create new client
-        dbCur.execute('INSERT INTO Clients (id, name, city, bind) VALUES (?, ?, ?, ?)', (chatId, name, city, bindId))
-    else:  # upadate info
-        dbCur.execute('UPDATE Clients SET name = ?, city = ?, bind = ? WHERE id = ?', (name, city, bindId, chatId))
-    dbConn.commit()
+def addNewClient(loop: SqlLoop, chatId, name, city, bindId):
+    def onProc(dbCur):
+        if dbCur.fetchone() is None:  # create new client
+            addTask = ('INSERT INTO Clients (id, name, city, bind) VALUES (?, ?, ?, ?)', (chatId, name, city, bindId))
+            loop.addTask(addTask, lambda dbCur1: dbConn.commit())
+        else:  # upadate info
+            updTask = ('UPDATE Clients SET name = ?, city = ?, bind = ? WHERE id = ?', (name, city, bindId, chatId))
+            loop.addTask(updTask, lambda dbCur1: dbConn.commit())
+
+    checkTask = ('SELECT id FROM Clients WHERE id = ?', (chatId,))
+    loop.addTask(checkTask, onProc)
 
 
-def getClientById(userId):
-    dbCur.execute('SELECT * FROM Clients WHERE id=?', (userId,))
-    return dbCur.fetchone()
+def getClientById(loop: SqlLoop, userId):
+    command = ('SELECT * FROM Clients WHERE id=?', (userId,))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
 
 
 # consultant requests
-def addNewConsultant(userId, name):
-    dbCur.execute('SELECT id FROM Consultants WHERE id = ?', (userId,))
-    if dbCur.fetchone() is None:  # create new Consultant
-        dbCur.execute('INSERT INTO Consultants (id, name) VALUES (?, ?)', (userId, name))
-    else:
-        dbCur.execute('UPDATE Consultants SET name = ? WHERE id = ?', (name, userId))
-    dbConn.commit()
+def addNewConsultant(loop: SqlLoop, userId, name):
+    def onProc(dbCur):
+        if dbCur.fetchone() is None:  # create new Consultant
+            addTask = ('INSERT INTO Consultants (id, name) VALUES (?, ?)', (userId, name))
+            loop.addTask(addTask, lambda dbCur1: dbConn.commit())
+        else:
+            updTask = ('UPDATE Consultants SET name = ? WHERE id = ?', (name, userId))
+            loop.addTask(updTask, lambda dbCur1: dbConn.commit())
+
+    checkTask = ('SELECT id FROM Consultants WHERE id = ?', (userId,))
+    loop.addTask(checkTask, onProc)
 
 
-def getConsultantById(userId):
-    dbCur.execute('SELECT * FROM Consultants WHERE id=?', (userId,))
-    return dbCur.fetchone()
+def getConsultantById(loop: SqlLoop, userId):
+    command = ('SELECT * FROM Consultants WHERE id=?', (userId,))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
 
 
 # task requests
-def addNewTask(clientId, groupId, postId):
+def addNewTask(loop: SqlLoop, clientId, groupId, postId):
     birthTime = time.time() // 60  # ? save time info in minutes
-    dbCur.execute('INSERT INTO Tasks (clientId, groupId, postId, birthTime) VALUES (?, ?, ?, ?)',
-                  (clientId, groupId, postId, birthTime))
-    dbConn.commit()
+    command = ('INSERT INTO Tasks (clientId, groupId, postId, birthTime) VALUES (?, ?, ?, ?)',
+               (clientId, groupId, postId, birthTime))
+    loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def getTaskByClientId(clientId):
-    dbCur.execute('SELECT * FROM Tasks WHERE clientId=?', (clientId,))
-    return dbCur.fetchone()
+def getTaskByClientId(loop: SqlLoop, clientId):
+    command = ('SELECT * FROM Tasks WHERE clientId=?', (clientId,))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
 
 
-def changeTaskPost(prevGroup, prevId, newGroup, newId):
-    dbCur.execute('UPDATE Tasks SET groupId = ?, postId = ? WHERE groupId=? AND postId=?',
-                  (newGroup, newId, prevGroup, prevId))
-    dbConn.commit()
+def changeTaskPost(loop: SqlLoop, prevGroup, prevId, newGroup, newId):
+    command = ('UPDATE Tasks SET groupId = ?, postId = ? WHERE groupId=? AND postId=?',
+               (newGroup, newId, prevGroup, prevId))
+
+    loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def getTaskByPost(groupId, postId):
-    dbCur.execute('SELECT * FROM Tasks WHERE groupId=? AND postId=?', (groupId, postId))
-    return dbCur.fetchone()
+def getTaskByPost(loop: SqlLoop, groupId, postId):
+    command = ('SELECT * FROM Tasks WHERE groupId=? AND postId=?', (groupId, postId))
+    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
 
 
-def delTask(clientId):
-    dbCur.execute('DELETE FROM Tasks WHERE clientId=?', (clientId,))
-    dbConn.commit()
+def delTask(loop: SqlLoop, clientId):
+    command = ('DELETE FROM Tasks WHERE clientId=?', (clientId,))
+    task = loop.addTask(command, lambda dbCur: dbConn.commit())
