@@ -5,6 +5,8 @@ from tokens import bot as botTokens
 
 from locLibs import dbFunc
 
+# uesr stages
+CLIENT_REDIR = 1
 # setup logger
 botLogger = logging.getLogger('bot')
 handler = logging.FileHandler('log/bot.log', mode='w')
@@ -13,7 +15,14 @@ handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
 
-bot = telebot.TeleBot(botTokens.token)
+bot = telebot.TeleBot(botTokens.token)  # auth bot, turn on sql loop
+dbFunc.mainSqlLoop.start()
+
+
+def isMsgFromPoint(msg: telebot.types.Message):
+    return msg.chat.type in ['supergroup', 'channel'] and dbFunc.getPointById(
+        msg.chat.id) is not None or dbFunc.getPointById(
+        bot.get_chat(msg.chat.id).linked_chat_id) is not None
 
 
 def getRelpyFromAdmin(reply, stopReg):
@@ -73,6 +82,7 @@ def welcomePoint(msg: telebot.types.Message):
     if not stopReg:
         bot.register_next_step_handler(reply, regPoint, regGenerator)
 
+
 # -reg client functions
 def regClientGen(msg: telebot.types.Message):
     reply = bot.send_message(msg.chat.id, 'ask about his name')
@@ -108,10 +118,11 @@ def regClientGen(msg: telebot.types.Message):
     # find point by point name
     clientBindId = next(pTuple for pTuple in pointList if pTuple[2] == clientBind and pTuple[1] == clientCity)[0]
 
-    botLogger.debug('saving client:' + str((msg.chat.id, clientName, clientCity, clientBindId)))
-    dbFunc.addNewClient(msg.chat.id, clientName, clientCity, clientBindId)
+    botLogger.debug('saving client:' + str((msg.from_user.id, clientName, clientCity, clientBindId)))
+    dbFunc.addNewClient(msg.from_user.id, clientName, clientCity, clientBindId)
 
-    reply = bot.send_message(msg.chat.id, 'data saved, say about /change_point', reply_markup=telebot.types.ReplyKeyboardRemove())
+    reply = bot.send_message(msg.chat.id, 'data saved, say about /change_point',
+                             reply_markup=telebot.types.ReplyKeyboardRemove())
     yield reply, True
 
 
@@ -125,15 +136,192 @@ def regClient(msg: telebot.types.Message, gen):
 @bot.message_handler(commands=['start'], func=lambda message: message.chat.type == 'private')
 def welcomeClient(msg: telebot.types.Message):
     botLogger.debug('welcome user')
-    regGenerator = regClientGen(msg)
-    reply, stopReg = next(regGenerator)
+    regProc = regClientGen(msg)
+    reply, stopReg = next(regProc)
     if not stopReg:
-        bot.register_next_step_handler(reply, regClient, regGenerator)
+        bot.register_next_step_handler(reply, regClient, regProc)
+
 
 # -reg consultant
-@bot.message_handler(commands=['set_name'], func = lambda msg: dbFunc.getPointById(msg.chat.id) is not None)
+@bot.message_handler(commands=['set_name'], func=lambda msg: dbFunc.getPointById(msg.chat.id) is not None)
 def setNameConsultant(msg: telebot.types.Message):
-    botLogger.debug('set name for user:' + str(msg.from_user.id) + ' on ' + msg.text)
-    dbFunc.addNewConsultant(msg.from_user.id, msg.text)
+    name = msg.text
+    name = name[name.find(' ') + 1:]
+    botLogger.debug('set name for user:' + str(msg.from_user.id) + ' on ' + name)
+    dbFunc.addNewConsultant(msg.from_user.id, name)
 
-bot.polling(none_stop=True)
+
+# TODO realise changing handers
+# TODO realise delete group handler
+# TODO realise redirect handler
+
+# functions for communication
+#   -handle repeat message from telegram
+@bot.message_handler(func=lambda message: message.from_user.id == 777000 and isMsgFromPoint(message))
+def catchChannelMsg(msg: telebot.types.Message):
+    originGr = msg.forward_origin.chat.id
+    originId = msg.forward_origin.message_id
+    curGr = msg.chat.id
+    curId = msg.message_id
+    botLogger.debug(f'catched telegram msg: {repr(msg.text)}. {originGr}, {originId}, changing on: {curGr}, {curId}')
+    dbFunc.changeTaskPost(originGr, originId, curGr, curId)
+
+
+# task functions
+#   - post message and save in DB
+def addNewTask(client, postText):
+    clientId, clientName, clientCity, clientBind = client
+    clientChannel = bot.get_chat(clientBind).linked_chat_id
+    botLogger.debug('begin conversation between ' + str(clientId) + ', ' + str(clientBind))
+    taskPost = bot.send_message(clientChannel, 'name:' + clientName + ', city:' + clientCity + '\n' + postText)
+    dbFunc.addNewTask(clientId, taskPost.chat.id, taskPost.id)
+
+
+#   - delete data in DB and ask client
+def endTask(clientId):
+    # TODO ask for rate
+    bot.send_message(clientId, 'the end of conversation')
+    dbFunc.delTask(clientId)
+
+
+#   -handle client side
+#       -client starts a conversation
+def handleStartConversation(msg: telebot.types.Message):
+    # TODO confirm start conversation
+    client = dbFunc.getClientById(msg.from_user.id)
+    if client is None:  # client has skiped the registration
+        bot.send_message(msg.chat.id, 'please enter /start for register')
+        return
+
+    addNewTask(client, msg.text)
+
+
+#       -client add message to existing task
+def handleClientSide(msg: telebot.types.Message, taskInfo):
+    client, group, postId = taskInfo[:3]  # skips birth info
+
+    twinChat = telebot.types.Chat(group, 'supergroup')
+    twinMsg = type('twinMsg', (object,), {'chat': twinChat, 'message_id': postId})
+    bot.reply_to(twinMsg, msg.text)
+
+
+#       -handle new message from client
+@bot.message_handler(func=lambda message: message.chat.type == 'private')
+def handleClient(msg: telebot.types.Message):
+    taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
+    if taskInfo is None:
+        handleStartConversation(msg)
+    else:
+        handleClientSide(msg, taskInfo)
+
+
+#   -handle consultant side
+#       -handle redirect command
+
+
+def redirectClientGen(msg: telebot.types.Message, client):
+    postMsg = msg.reply_to_message
+    clientId, clientName, clientCity, clientBind = client
+    bot.send_message(clientId, 'you gonna redirect')
+
+    cityList = dbFunc.getCityList()
+    reply = bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
+
+    msg = yield reply, False  # waiting for city
+    while msg.text != '/cancel' and msg.text not in cityList:
+        reply = bot.reply_to(postMsg, 'incorrect city')
+        msg = yield reply, False
+
+    if msg.text == '/cancel':
+        bot.send_message(clientId, 'redirection has stoped')
+        yield reply, True
+
+    newCity = msg.text
+    # reg keyboard
+    pointList = dbFunc.getPointsByCity(newCity)
+    if clientCity == newCity:
+        pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
+    pointNameList = list(map(lambda x: x[2], pointList))
+    reply = bot.reply_to(postMsg, 'ask about point\npoints:\n' + '\n'.join(pointNameList))
+
+    msg = yield reply, False  # waiting for point
+    while msg.text != '/cancel' and msg.text not in pointNameList:
+        reply = bot.reply_to(postMsg, 'incorrect point')
+        msg = yield reply, False
+
+    if msg.text == '/cancel':
+        bot.send_message(clientId, 'redirection has stoped')
+        yield reply, True
+
+    newPoint = next(i[0] for i in pointList if i[2] == msg.text)
+
+    reply = bot.reply_to(postMsg, 'ask about post text')
+    msg = yield reply, False  # waiting for post text
+
+    if msg.text == '/cancel':
+        bot.send_message(clientId, 'redirection has stoped')
+        yield reply, True
+
+    postText = msg.text
+    bot.send_message(clientId, 'redirect successfully')
+    reply = bot.reply_to(postMsg, 'redirect successfully')
+
+    dbFunc.delTask(clientId)
+    dbFunc.changeClientBind(clientId, newCity, newPoint)
+    newClient = (client[0], client[1], newCity, newPoint)
+    addNewTask(newClient, postText)
+    yield reply, True
+
+
+def redirectClient(msg: telebot.types.Message, clientId, gen):
+    post = msg.reply_to_message
+    reply, stop = gen.send(msg)
+    if not stop:
+        bot.register_for_reply(post, redirectClient, clientId, gen)
+    else:
+        bot.delete_state(clientId)
+
+
+@bot.message_handler(func=lambda
+        msg: msg.reply_to_message is not None and msg.reply_to_message.from_user.id == 777000 and isMsgFromPoint(msg))
+def handleConsultant(msg: telebot.types.Message):
+    consultant = dbFunc.getConsultantById(msg.from_user.id)
+    if consultant is None:  # consultant has skiped the registration
+        bot.send_message(msg.chat.id, 'please enter /start for register')
+        return
+
+    postMsg = msg.reply_to_message
+    replyChat = postMsg.chat.id
+    replyId = postMsg.message_id
+    task = dbFunc.getTaskByPost(replyChat, replyId)
+    if task is None:
+        bot.send_message(msg.chat.id, 'this post is not supported')
+        return
+
+    botLogger.debug('processing comment:' + str(replyChat) + '-' + str(replyId))
+    clientId = task[0]
+    clientState = bot.get_state(clientId)
+    if clientState == CLIENT_REDIR:
+        return
+
+    if msg.text == '/close':
+        endTask(clientId)
+    elif msg.text == '/redirect':
+        bot.set_state(clientId, CLIENT_REDIR)
+
+        client = dbFunc.getClientById(clientId)
+        redirProc = redirectClientGen(msg, client)
+        reply, stop = next(redirProc)
+        if not stop:
+            botLogger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
+            bot.register_for_reply(postMsg, redirectClient, clientId, redirProc)
+    else:
+        signedMsg = 'consultant name: ' + consultant[1] + '\n' + msg.text
+        bot.send_message(clientId, signedMsg)
+
+
+try:
+    bot.polling(none_stop=True)
+except Exception as err:
+    dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown loop
+    raise err
