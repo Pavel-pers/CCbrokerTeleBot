@@ -16,8 +16,43 @@ handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
 
-bot = telebot.TeleBot(botTokens.token)  # auth bot, turn on sql loop
+class TeleBotBanF(telebot.TeleBot):
+    def __init__(self, *args, **kwargs):
+        if 'block_list' in kwargs:
+            self.blockUsers = kwargs['block_list']
+            kwargs.pop('block_list')
+        else:
+            self.blockUsers = set()
+        super().__init__(*args, **kwargs)
+
+    def get_updates(self, *args, **kwargs):
+        jsonEvents = telebot.apihelper.get_updates(self.token, *args, **kwargs)
+        filtData = []
+        for event in jsonEvents:
+            if event['message']['chat']['id'] in self.blockUsers:
+                self.last_update_id = event['update_id']
+            else:
+                filtData.append(telebot.types.Update.de_json(event))
+        return filtData
+
+    def block_user(self, userId):
+        self.blockUsers.add(userId)
+
+
+bot = TeleBotBanF(botTokens.token, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
+botLogger.info('started work')
 dbFunc.mainSqlLoop.start()
+
+
+def blockUser(userId):
+    bot.block_user(userId)
+    dbFunc.addBlockUser(userId)
+
+
+def getTwinMsg(chatId, chatType, msgId):
+    twinChat = telebot.types.Chat(chatId, chatType)
+    twinMsg = type('twinMsg', (object,), {'chat': twinChat, 'message_id': msgId})
+    return twinMsg
 
 
 def isMsgFromPoint(msg: telebot.types.Message):
@@ -153,6 +188,7 @@ def setNameConsultant(msg: telebot.types.Message):
     name = msg.text
     name = name[name.find(' ') + 1:]
     botLogger.debug('set name for user:' + str(msg.from_user.id) + ' on ' + name)
+    bot.send_message(msg.chat.id, 'data saved')
     dbFunc.addNewConsultant(msg.from_user.id, name)
 
 
@@ -232,9 +268,7 @@ def handleStartConversation(msg: telebot.types.Message):
 #       -client add message to existing task
 def handleClientSide(msg: telebot.types.Message, taskInfo):
     client, group, postId = taskInfo[:3]  # skips birth info
-
-    twinChat = telebot.types.Chat(group, 'supergroup')
-    twinMsg = type('twinMsg', (object,), {'chat': twinChat, 'message_id': postId})
+    twinMsg = getTwinMsg(group, 'supergroup', postId)
     bot.reply_to(twinMsg, msg.text)
 
 
@@ -339,7 +373,7 @@ def handleConsultant(msg: telebot.types.Message):
     replyId = postMsg.message_id
     task = dbFunc.getTaskByPost(replyChat, replyId)
     if task is None:
-        bot.send_message(msg.chat.id, 'this post is not supported')
+        bot.reply_to(postMsg, 'this post is not supported')
         return
 
     botLogger.debug('processing comment:' + str(replyChat) + '-' + str(replyId))
@@ -350,6 +384,12 @@ def handleConsultant(msg: telebot.types.Message):
 
     if msg.text == '/close':
         endTask(clientId)
+    elif msg.text == '/ban':
+        dbFunc.delTask(clientId)
+        dbFunc.delClient(clientId)
+        bot.send_message(clientId, 'you have banned!')
+        bot.reply_to(postMsg, 'banned')
+        blockUser(clientId)
     elif msg.text == '/redirect':
         bot.set_state(clientId, CLIENT_REDIR)
 

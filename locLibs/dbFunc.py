@@ -52,6 +52,22 @@ if __name__ == "__main__":
     dbConn.commit()
 
 
+# -block list functions
+#   -get
+def getBlockList():
+    banUsers = set()
+    with open('data/banList.txt', 'r') as f:
+        for l in f:
+            banUsers.add(int(l.strip()))
+    return banUsers
+
+
+#   -add
+def addBlockUser(userId):
+    with open('data/banList.txt', 'a') as f:
+        f.write(str(userId) + '\n')
+
+
 # -csv functions
 def getCityList():
     cities = []
@@ -233,6 +249,11 @@ def getClientById(userId, loop: SqlLoop = mainSqlLoop):
 
 def changeClientBind(clientId, newCity, newBind, loop: SqlLoop = mainSqlLoop):
     command = ('UPDATE Clients SET city = ?, bind = ? WHERE id = ?', (newCity, newBind, clientId))
+    loop.addTask(command, lambda dbCur: dbConn.commit())
+
+
+def delClient(clientId, loop: SqlLoop = mainSqlLoop):
+    command = ('DELETE FROM Clients WHERE id=?', (clientId,))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
