@@ -8,6 +8,7 @@ from locLibs import dbFunc
 # uesr stages
 CLIENT_REDIR = 1
 CLIENT_REG = 2
+ALLOWED_CONTENT = ['text', 'photo', 'document', 'audio', 'video', 'voice', 'video_note', 'sticker']
 # setup logger
 botLogger = logging.getLogger('bot')
 handler = logging.FileHandler('log/bot.log', mode='w')
@@ -15,6 +16,7 @@ formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s'
 handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
+
 
 class TeleBotBanF(telebot.TeleBot):
     def __init__(self, *args, **kwargs):
@@ -39,6 +41,25 @@ class TeleBotBanF(telebot.TeleBot):
         self.blockUsers.add(userId)
 
 
+class PendingMessages:
+    def __init__(self):
+        self.pendingQ = {}
+
+    def add(self, chatId, replyId, callback):
+        self.pendingQ[(chatId, replyId)].append(callback)
+
+    def isWaiting(self, chatId, replyId):
+        return (chatId, replyId) in self.pendingQ
+
+    def newAwait(self, chatId, replyId):
+        self.pendingQ[(chatId, replyId)] = []
+
+    def processCB(self, keyChat, keyReply, cbChat, cbReply):
+        for callback in self.pendingQ.get((keyChat, keyReply), []):
+            callback(cbChat, cbReply)
+        self.pendingQ.pop((keyChat, keyReply), None)
+
+
 bot = TeleBotBanF(botTokens.token, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
 botLogger.info('started work')
 dbFunc.mainSqlLoop.start()
@@ -49,16 +70,87 @@ def blockUser(userId):
     dbFunc.addBlockUser(userId)
 
 
-def getTwinMsg(chatId, chatType, msgId):
-    twinChat = telebot.types.Chat(chatId, chatType)
-    twinMsg = type('twinMsg', (object,), {'chat': twinChat, 'message_id': msgId})
-    return twinMsg
-
-
 def isMsgFromPoint(msg: telebot.types.Message):
     return msg.chat.type in ['supergroup', 'channel'] and dbFunc.getPointById(
         msg.chat.id) is not None or dbFunc.getPointById(
         bot.get_chat(msg.chat.id).linked_chat_id) is not None
+
+
+def redirectMsg(msg: telebot.types.Message, header, chatId, replyId, fromClient, pendindMsg: PendingMessages):
+    text = msg.text or msg.caption or ''
+    text = header + '\n' + text
+
+    maxCount = 0
+    if fromClient:
+        if replyId is None:  # making new post
+            maxCount = 1
+        else:
+            maxCount = 0 if pendindMsg.isWaiting(chatId, replyId) else 2  # 0 - post doesn't exist, 2 - post exist
+    else:
+        maxCount = 2  # we always can send client
+
+    lstRes = None
+    if msg.content_type == 'text':
+        if maxCount >= 1:
+            lstRes = bot.send_message(chatId, text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl))
+    if msg.content_type == 'photo':  # TODO make photos grouping
+        if maxCount >= 1:
+            lstRes = bot.send_photo(chatId, msg.photo[0].file_id, caption=text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_photo(ch, msg.photo[0].file_id, caption=text,
+                                                                            reply_to_message_id=repl))
+    if msg.content_type == 'document':
+        if maxCount >= 1:
+            lstRes = bot.send_document(chatId, msg.document.file_id, caption=text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_document(ch, msg.document.file_id, caption=text,
+                                                                               reply_to_message_id=repl))
+    if msg.content_type == 'audio':
+        if maxCount >= 1:
+            lstRes = bot.send_audio(chatId, msg.audio.file_id, caption=text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_audio(ch, msg.audio.file_id, caption=text,
+                                                                            reply_to_message_id=repl))
+
+    if msg.content_type == 'video':
+        if maxCount >= 1:
+            lstRes = bot.send_video(chatId, msg.video.file_id, caption=text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_video(ch, msg.video.file_id, caption=text,
+                                                                            reply_to_message_id=repl))
+
+    if msg.content_type == 'voice':
+        if maxCount >= 1:
+            lstRes = bot.send_voice(chatId, msg.voice.file_id, caption=text, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_voice(ch, msg.voice.file_id, caption=text,
+                                                                            reply_to_message_id=repl))
+
+    if msg.content_type == 'video_note':
+        if maxCount >= 1:
+            lstRes = bot.send_message(chatId, header + '\nsent a video note', reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_message(ch, header + '\nsent a video note',
+                                                                              reply_to_message_id=repl))
+        if maxCount >= 2:
+            lstRes = bot.send_video_note(chatId, msg.video_note.file_id, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId,
+                           lambda ch, repl: bot.send_video_note(ch, msg.video_note.file_id, reply_to_message_id=repl))
+    if msg.content_type == 'sticker':
+        if maxCount >= 1:
+            lstRes = bot.send_message(chatId, header + '\nsent a sticker', reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId,
+                           lambda ch, repl: bot.send_message(ch, header + '\nsent a sticker', reply_to_message_id=repl))
+        if maxCount >= 2:
+            lstRes = bot.send_sticker(chatId, msg.sticker.file_id, reply_to_message_id=replyId)
+        else:
+            pendindMsg.add(chatId, replyId,
+                           lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
+    return lstRes
 
 
 def getRelpyFromAdmin(reply, stopReg):
@@ -225,8 +317,12 @@ def changeClientName(msg: telebot.types.Message):
 # TODO realise delete group handler
 
 # functions for communication
+pendingPostMsgs = PendingMessages()  # messages which waiting telegramm repeat
+
+
 #   -handle repeat message from telegram
-@bot.message_handler(func=lambda message: message.from_user.id == 777000 and isMsgFromPoint(message))
+@bot.message_handler(func=lambda message: message.from_user.id == 777000 and isMsgFromPoint(message),
+                     content_types=ALLOWED_CONTENT)
 def catchChannelMsg(msg: telebot.types.Message):
     originGr = msg.forward_origin.chat.id
     originId = msg.forward_origin.message_id
@@ -234,15 +330,19 @@ def catchChannelMsg(msg: telebot.types.Message):
     curId = msg.message_id
     botLogger.debug(f'catched telegram msg: {repr(msg.text)}. {originGr}, {originId}, changing on: {curGr}, {curId}')
     dbFunc.changeTaskPost(originGr, originId, curGr, curId)
+    pendingPostMsgs.processCB(originGr, originId, curGr, curId)
 
 
-# task functions
-#   - post message and save in DB
-def addNewTask(client, postText):
+#   -task functions
+#       - post message, save in DB
+def addNewTask(client, postMsg: telebot.types.Message):
     clientId, clientName, clientCity, clientBind = client
     clientChannel = bot.get_chat(clientBind).linked_chat_id
-    botLogger.debug('begin conversation between ' + str(clientId) + ', ' + str(clientBind))
-    taskPost = bot.send_message(clientChannel, 'name:' + clientName + ', city:' + clientCity + '\n' + postText)
+    botLogger.debug('begin conversation between ' + str(clientId) + ', ' + str(clientChannel))
+
+    header = 'name:' + clientName + ', city:' + clientCity
+    pendingPostMsgs.newAwait(clientChannel, )
+    taskPost = redirectMsg(postMsg, header, clientChannel, None, True, pendingPostMsgs)
     dbFunc.addNewTask(clientId, taskPost.chat.id, taskPost.id)
 
 
@@ -262,18 +362,17 @@ def handleStartConversation(msg: telebot.types.Message):
         bot.send_message(msg.chat.id, 'please enter /start for register')
         return
 
-    addNewTask(client, msg.text)
+    addNewTask(client, msg)
 
 
 #       -client add message to existing task
 def handleClientSide(msg: telebot.types.Message, taskInfo):
     client, group, postId = taskInfo[:3]  # skips birth info
-    twinMsg = getTwinMsg(group, 'supergroup', postId)
-    bot.reply_to(twinMsg, msg.text)
+    redirectMsg(msg, '', group, postId, True, pendingPostMsgs)
 
 
 #       -handle new message from client
-@bot.message_handler(func=lambda message: message.chat.type == 'private')
+@bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=ALLOWED_CONTENT)
 def handleClient(msg: telebot.types.Message):
     taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
     if taskInfo is None:
@@ -317,7 +416,7 @@ def redirectClientGen(msg: telebot.types.Message, client):
             pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
 
         if len(pointList) == 0:
-            bot.send_message(postMsg, 'there are no suitable points')
+            bot.reply_to(postMsg, 'there are no suitable points')
 
     pointNameList = list(map(lambda x: x[2], pointList))
     reply = bot.reply_to(postMsg, 'ask about point\npoints:\n' + '\n'.join(pointNameList))
@@ -340,14 +439,13 @@ def redirectClientGen(msg: telebot.types.Message, client):
         bot.send_message(clientId, 'redirection has stoped')
         yield reply, True
 
-    postText = msg.text
     bot.send_message(clientId, 'redirect successfully')
     reply = bot.reply_to(postMsg, 'redirect successfully')
 
     dbFunc.delTask(clientId)
     dbFunc.changeClientBind(clientId, newCity, newPoint)
     newClient = (client[0], client[1], newCity, newPoint)
-    addNewTask(newClient, postText)
+    addNewTask(newClient, msg)
     yield reply, True
 
 
@@ -361,7 +459,7 @@ def redirectClient(msg: telebot.types.Message, clientId, gen):
 
 
 #       -handler consultant messages, ignore redireced sessions
-@bot.message_handler(func=isPostReply)
+@bot.message_handler(func=isPostReply, content_types=ALLOWED_CONTENT)
 def handleConsultant(msg: telebot.types.Message):
     consultant = dbFunc.getConsultantById(msg.from_user.id)
     if consultant is None:  # consultant has skiped the registration
@@ -400,8 +498,7 @@ def handleConsultant(msg: telebot.types.Message):
             botLogger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
             bot.register_for_reply(postMsg, redirectClient, clientId, redirProc)
     else:
-        signedMsg = 'consultant name: ' + consultant[1] + '\n' + msg.text
-        bot.send_message(clientId, signedMsg)
+        redirectMsg(msg, 'consultant name: ' + consultant[1], clientId, None, False, pendingPostMsgs)
 
 
 try:
