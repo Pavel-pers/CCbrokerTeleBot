@@ -7,6 +7,7 @@ from locLibs import dbFunc
 
 # uesr stages
 CLIENT_REDIR = 1
+CLIENT_REG = 2
 # setup logger
 botLogger = logging.getLogger('bot')
 handler = logging.FileHandler('log/bot.log', mode='w')
@@ -107,7 +108,7 @@ def regClientGen(msg: telebot.types.Message):
     for point in pointList:
         pointKeyboard.add(point[2])
 
-    reply = bot.send_message(msg.chat.id, 'ask about point, say about /change_city', reply_markup=pointKeyboard)
+    reply = bot.send_message(msg.chat.id, 'ask about point, say about /change_point', reply_markup=pointKeyboard)
     msg = yield reply, False
     clientBind = msg.text  # client is binding to point
     while clientBind not in map(lambda el: el[2], pointList):  # wait for correct point
@@ -149,6 +150,7 @@ def setNameConsultant(msg: telebot.types.Message):
     name = name[name.find(' ') + 1:]
     botLogger.debug('set name for user:' + str(msg.from_user.id) + ' on ' + name)
     dbFunc.addNewConsultant(msg.from_user.id, name)
+
 
 
 # TODO realise changing handers
@@ -216,9 +218,12 @@ def handleClient(msg: telebot.types.Message):
 
 
 #   -handle consultant side
+#       -post checker
+def isPostReply(msg: telebot.types.Message):
+    return msg.reply_to_message is not None and msg.reply_to_message.from_user.id == 777000 and isMsgFromPoint(msg)
+
+
 #       -handle redirect command
-
-
 def redirectClientGen(msg: telebot.types.Message, client):
     postMsg = msg.reply_to_message
     clientId, clientName, clientCity, clientBind = client
@@ -227,20 +232,27 @@ def redirectClientGen(msg: telebot.types.Message, client):
     cityList = dbFunc.getCityList()
     reply = bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
 
-    msg = yield reply, False  # waiting for city
-    while msg.text != '/cancel' and msg.text not in cityList:
-        reply = bot.reply_to(postMsg, 'incorrect city')
-        msg = yield reply, False
+    pointList = []
+    while len(pointList) == 0:  # ! not vertified
+        msg = yield reply, False  # waiting for city
 
-    if msg.text == '/cancel':
-        bot.send_message(clientId, 'redirection has stoped')
-        yield reply, True
+        while msg.text != '/cancel' and msg.text not in cityList:
+            reply = bot.reply_to(postMsg, 'incorrect city')
+            msg = yield reply, False
 
-    newCity = msg.text
-    # reg keyboard
-    pointList = dbFunc.getPointsByCity(newCity)
-    if clientCity == newCity:
-        pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
+        if msg.text == '/cancel':
+            bot.send_message(clientId, 'redirection has stoped')
+            yield reply, True
+
+        newCity = msg.text
+        # get point list
+        pointList = dbFunc.getPointsByCity(newCity)
+        if clientCity == newCity:
+            pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
+
+        if len(pointList) == 0:
+            bot.send_message(postMsg, 'there are no suitable points')
+
     pointNameList = list(map(lambda x: x[2], pointList))
     reply = bot.reply_to(postMsg, 'ask about point\npoints:\n' + '\n'.join(pointNameList))
 
@@ -282,12 +294,12 @@ def redirectClient(msg: telebot.types.Message, clientId, gen):
         bot.delete_state(clientId)
 
 
-@bot.message_handler(func=lambda
-        msg: msg.reply_to_message is not None and msg.reply_to_message.from_user.id == 777000 and isMsgFromPoint(msg))
+#       -handler consultant messages, ignore redireced sessions
+@bot.message_handler(func=isPostReply)
 def handleConsultant(msg: telebot.types.Message):
     consultant = dbFunc.getConsultantById(msg.from_user.id)
     if consultant is None:  # consultant has skiped the registration
-        bot.send_message(msg.chat.id, 'please enter /start for register')
+        bot.send_message(msg.chat.id, 'please enter /set_name <NAME> for register')
         return
 
     postMsg = msg.reply_to_message
