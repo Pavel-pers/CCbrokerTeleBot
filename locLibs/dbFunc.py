@@ -16,14 +16,14 @@ dbLogger.setLevel(logging.DEBUG)
 
 dbConn = sqlite3.connect('data/database.db', check_same_thread=False)
 if __name__ == "__main__":
+    print('create table')
     dbCurr = dbConn.cursor()
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Tasks(
         clientId INTEGER PRIMARY KEY,
         groupId INTEGER,
         postId INTEGER,
         birthTime INTEGER
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS task_client_id ON Tasks (clientId)""")
+    )""")
     dbConn.commit()
 
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Clients(
@@ -31,27 +31,24 @@ if __name__ == "__main__":
         name TEXT NOT NULL,
         city TEXT NOT NULL,
         bind INTEGER
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS client_id ON Clients(id)""")
+    );""")
     dbConn.commit()
 
-    dbCurr.execute("""CREATE TABLE IF NOT EXISTS Consultats(
+    dbCurr.execute("""CREATE TABLE IF NOT EXISTS Consultants(
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
-        rate INTEGER,
-        answers INTEGER,
-        bonus INTEGER
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS consultats_id ON Consultats(id)""")
+        rate INTEGER DEFAULT 0,
+        answers INTEGER DEFAULT 0,
+        bonus INTEGER DEFAULT 0
+    );""")
     dbConn.commit()
 
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Points(
         id INTEGER PRIMARY KEY,
         city TEXT NOT NULL,
         name TEXT NOT NULL,
-        workH TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS point_id ON Points(id)""")
+        workH TEXT DEFAULT NULL 
+    );""")
     dbConn.commit()
 
 
@@ -63,6 +60,59 @@ def getCityList():
         for row in reader:
             cities.append(row[0])
     return cities
+
+
+csvCityLock = threading.Lock()
+
+
+def getRegCityList():
+    cities = []
+    with open('data/regCities.csv', 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            cities.append(row[0])
+    return cities
+
+
+def addRegCity(city):
+    dbLogger.debug('add ' + city)
+    cities = getRegCityList()
+    with csvCityLock:
+        if city not in cities:
+            with open('data/regCities.csv', 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([city, 1])
+        else:
+            citiesC = []
+            with open('data/regCities.csv', 'r') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    row[1] = int(row[1])
+                    if row[0] == city:
+                        row[1] += 1
+                    citiesC.append(row)
+            with open('data/regCities.csv', 'w', newline='') as f:
+                writer = csv.writer(f)
+                for row in citiesC:
+                    writer.writerow(row)
+
+
+def delRegCity(city):  # TODO validate func
+    dbLogger.debug('delete ' + city)
+    with csvCityLock:
+        citiesC = []
+        with open('data/regCities.csv', 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                row[1] = int(row[1])
+                if row[0] == city:
+                    row[1] -= 1
+                if row[1] > 0:
+                    citiesC.append(row)
+        with open('data/regCities.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
+            for row in citiesC:
+                writer.writerow(row)
 
 
 # -sqlite functions
@@ -129,9 +179,24 @@ mainSqlLoop = SqlLoop(dbLogger)
 # point requests
 def addNewPoint(groupId, city, name, workHours, loop: SqlLoop = mainSqlLoop):
     # TODO add validator
-    command = (('INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)',
-                (groupId, city, name, workHours)))
-    loop.addTask(command, lambda dbCur: dbConn.commit())
+    def onProc(dbCur: sqlite3.Cursor):
+        fetch = dbCur.fetchone()
+        if fetch is None:
+            addRegCity(city)
+            addTask = (
+                'INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)', (groupId, city, name, workHours))
+            loop.addTask(addTask, lambda dbCur1: dbConn.commit())
+        else:
+            prevCity = fetch[1]
+            delRegCity(prevCity)
+            addRegCity(city)
+            updTask = (
+                'UPDATE Points SET city = ?, name = ?, workH = ? WHERE id = ?', (city, name, workHours, groupId)
+            )
+            loop.addTask(updTask, lambda dbCur1: dbConn.commit())
+
+    checkTask = ('SELECT * FROM Points WHERE id = ?', (groupId,))
+    loop.addTask(checkTask, onProc)
 
 
 def getPointsByCity(city, loop: SqlLoop = mainSqlLoop):

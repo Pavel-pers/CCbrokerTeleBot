@@ -49,7 +49,7 @@ def regPointGen(msg: telebot.types.Message):
     pointCity = msg.text
 
     while pointCity not in cityList:
-        reply = bot.send_message(msg.chat.id, 'incorrect city')  # TODO is reply keyboard removed
+        reply = bot.send_message(msg.chat.id, 'incorrect city', reply_markup=cityKeyboard)
         msg = yield from getRelpyFromAdmin(reply, False)
         pointCity = msg.text
 
@@ -91,16 +91,17 @@ def regClientGen(msg: telebot.types.Message, client=(None, None, None)):
         msg: telebot.types.Message = yield reply, False
         client = (msg.text, client[1], client[2])
 
+    pointList = []
     if client[1] is None:
         cityKeyboard = telebot.types.ReplyKeyboardMarkup()  # prepare keybaard
-        cityList = dbFunc.getCityList()
+        cityList = dbFunc.getRegCityList()
         for city in cityList:
             cityKeyboard.add(city)
 
         reply = bot.send_message(msg.chat.id, 'ask about city, say about /rename', reply_markup=cityKeyboard)
         msg = yield reply, False
         while msg.text not in cityList:  # wait for correct city
-            reply = bot.send_message(msg.chat.id, 'incorrect city')
+            reply = bot.send_message(msg.chat.id, 'incorrect city', reply_markup=cityKeyboard)
             msg = yield reply, False
 
         client = (client[0], msg.text, client[2])
@@ -115,7 +116,7 @@ def regClientGen(msg: telebot.types.Message, client=(None, None, None)):
         reply = bot.send_message(msg.chat.id, 'ask about point, say about /change_point', reply_markup=pointKeyboard)
         msg = yield reply, False
         while msg.text not in map(lambda el: el[2], pointList):  # wait for correct point
-            reply = bot.send_message(msg.chat.id, 'incorrect point')
+            reply = bot.send_message(msg.chat.id, 'incorrect point', reply_markup=pointKeyboard)
             msg = yield reply, False
 
         # find point by point name
@@ -259,7 +260,7 @@ def redirectClientGen(msg: telebot.types.Message, client):
     clientId, clientName, clientCity, clientBind = client
     bot.send_message(clientId, 'you gonna redirect')
 
-    cityList = dbFunc.getCityList()
+    cityList = dbFunc.getRegCityList()
     reply = bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
 
     pointList = []
