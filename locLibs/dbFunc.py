@@ -8,7 +8,7 @@ import logging
 import time
 
 dbLogger = logging.getLogger('DB_main')
-handler = logging.FileHandler('log/db.log', mode='w')
+handler = logging.FileHandler('log/.log', mode='a')
 formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s', '%H:%M:%S')
 handler.setFormatter(formatter)
 dbLogger.addHandler(handler)
@@ -173,12 +173,22 @@ class SqlLoop:
         self.logger.info('loop started')
 
     def addTask(self, commInfo, onProcesed) -> SqlRequest:  # returns request class
-        request = SqlRequest(commInfo, onProcesed)
+        request = None
+        if dbLogger.level == logging.DEBUG:
+            def modfFunc(dbCur):
+                dbLogger.debug('processed-' + str(commInfo))
+                return onProcesed(dbCur)
+
+            request = SqlRequest(commInfo, modfFunc)
+        else:
+            request = SqlRequest(commInfo, onProcesed)
+
         try:
             self.workQ.put_nowait(request)
         except queue.Full:
             self.logger.warning('queue full')
             self.workQ.put(request)
+        dbLogger.debug('add task-' + str(commInfo))
         return request
 
     def killLoop(self, blocking=True):
@@ -279,7 +289,7 @@ def getConsultantById(userId, loop: SqlLoop = mainSqlLoop):
 
 # task requests
 def addNewTask(clientId, groupId, postId, loop: SqlLoop = mainSqlLoop):
-    birthTime = time.time() // 60  # ? save time info in minutes
+    birthTime = int(time.time() // 60)  # ? save time info in minutes
     command = ('INSERT INTO Tasks (clientId, groupId, postId, birthTime) VALUES (?, ?, ?, ?)',
                (clientId, groupId, postId, birthTime))
     loop.addTask(command, lambda dbCur: dbConn.commit())

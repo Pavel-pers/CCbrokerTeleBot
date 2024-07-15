@@ -11,7 +11,7 @@ CLIENT_REG = 2
 ALLOWED_CONTENT = ['text', 'photo', 'document', 'audio', 'video', 'voice', 'video_note', 'sticker']
 # setup logger
 botLogger = logging.getLogger('bot')
-handler = logging.FileHandler('log/bot.log', mode='w')
+handler = logging.FileHandler('log/.log', mode='a')
 formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s', '%H:%M:%S')
 handler.setFormatter(formatter)
 botLogger.addHandler(handler)
@@ -31,7 +31,7 @@ class TeleBotBanF(telebot.TeleBot):
         jsonEvents = telebot.apihelper.get_updates(self.token, *args, **kwargs)
         filtData = []
         for event in jsonEvents:
-            if event['message']['chat']['id'] in self.blockUsers:
+            if 'message' in event and event['message']['chat']['id'] in self.blockUsers:
                 self.last_update_id = event['update_id']
             else:
                 filtData.append(telebot.types.Update.de_json(event))
@@ -46,6 +46,7 @@ class PendingMessages:
         self.pendingQ = {}
 
     def add(self, chatId, replyId, callback):
+        botLogger.debug(f'new cb for: chat={chatId}, reply={replyId}')
         self.pendingQ[(chatId, replyId)].append(callback)
 
     def isWaiting(self, chatId, replyId):
@@ -55,12 +56,15 @@ class PendingMessages:
         self.pendingQ[(chatId, replyId)] = []
 
     def processCB(self, keyChat, keyReply, cbChat, cbReply):
-        for callback in self.pendingQ.get((keyChat, keyReply), []):
+        cbLst = self.pendingQ.get((keyChat, keyReply), [])
+        botLogger.debug(f'execute {len(cbLst)} callbacks for: chat={keyChat}, reply={keyReply}')
+        for callback in cbLst:
             callback(cbChat, cbReply)
         self.pendingQ.pop((keyChat, keyReply), None)
 
 
-bot = TeleBotBanF(botTokens.token, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
+# TODO make it thread-friendly
+bot = TeleBotBanF(botTokens.token, threaded=False, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
 botLogger.info('started work')
 dbFunc.mainSqlLoop.start()
 
@@ -76,81 +80,28 @@ def isMsgFromPoint(msg: telebot.types.Message):
         bot.get_chat(msg.chat.id).linked_chat_id) is not None
 
 
-def redirectMsg(msg: telebot.types.Message, header, chatId, replyId, fromClient, pendindMsg: PendingMessages):
+def redirectMsg(msg: telebot.types.Message, header):
     text = msg.text or msg.caption or ''
     text = header + '\n' + text
 
-    maxCount = 0
-    if fromClient:
-        if replyId is None:  # making new post
-            maxCount = 1
-        else:
-            maxCount = 0 if pendindMsg.isWaiting(chatId, replyId) else 2  # 0 - post doesn't exist, 2 - post exist
-    else:
-        maxCount = 2  # we always can send client
-
-    lstRes = None
     if msg.content_type == 'text':
-        if maxCount >= 1:
-            lstRes = bot.send_message(chatId, text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl))
+        return (lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl),)
     if msg.content_type == 'photo':  # TODO make photos grouping
-        if maxCount >= 1:
-            lstRes = bot.send_photo(chatId, msg.photo[0].file_id, caption=text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_photo(ch, msg.photo[0].file_id, caption=text,
-                                                                            reply_to_message_id=repl))
+        return (lambda ch, repl: bot.send_photo(ch, msg.photo[0].file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'document':
-        if maxCount >= 1:
-            lstRes = bot.send_document(chatId, msg.document.file_id, caption=text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_document(ch, msg.document.file_id, caption=text,
-                                                                               reply_to_message_id=repl))
+        return (lambda ch, repl: bot.send_document(ch, msg.document.file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'audio':
-        if maxCount >= 1:
-            lstRes = bot.send_audio(chatId, msg.audio.file_id, caption=text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_audio(ch, msg.audio.file_id, caption=text,
-                                                                            reply_to_message_id=repl))
-
+        return (lambda ch, repl: bot.send_audio(ch, msg.audio.file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'video':
-        if maxCount >= 1:
-            lstRes = bot.send_video(chatId, msg.video.file_id, caption=text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_video(ch, msg.video.file_id, caption=text,
-                                                                            reply_to_message_id=repl))
-
+        return (lambda ch, repl: bot.send_video(ch, msg.video.file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'voice':
-        if maxCount >= 1:
-            lstRes = bot.send_voice(chatId, msg.voice.file_id, caption=text, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_voice(ch, msg.voice.file_id, caption=text,
-                                                                            reply_to_message_id=repl))
-
+        return (lambda ch, repl: bot.send_voice(ch, msg.voice.file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'video_note':
-        if maxCount >= 1:
-            lstRes = bot.send_message(chatId, header + '\nsent a video note', reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId, lambda ch, repl: bot.send_message(ch, header + '\nsent a video note',
-                                                                              reply_to_message_id=repl))
-        if maxCount >= 2:
-            lstRes = bot.send_video_note(chatId, msg.video_note.file_id, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId,
-                           lambda ch, repl: bot.send_video_note(ch, msg.video_note.file_id, reply_to_message_id=repl))
+        return (lambda ch, repl: bot.send_message(ch, header + '\nsent a video note', reply_to_message_id=repl),
+                lambda ch, repl: bot.send_video_note(ch, msg.video_note.file_id, reply_to_message_id=repl))
     if msg.content_type == 'sticker':
-        if maxCount >= 1:
-            lstRes = bot.send_message(chatId, header + '\nsent a sticker', reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId,
-                           lambda ch, repl: bot.send_message(ch, header + '\nsent a sticker', reply_to_message_id=repl))
-        if maxCount >= 2:
-            lstRes = bot.send_sticker(chatId, msg.sticker.file_id, reply_to_message_id=replyId)
-        else:
-            pendindMsg.add(chatId, replyId,
-                           lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
-    return lstRes
+        return (lambda ch, repl: bot.send_message(ch, header + '\nsent a sticker', reply_to_message_id=repl),
+                lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
 
 
 def getRelpyFromAdmin(reply, stopReg):
@@ -341,9 +292,13 @@ def addNewTask(client, postMsg: telebot.types.Message):
     botLogger.debug('begin conversation between ' + str(clientId) + ', ' + str(clientChannel))
 
     header = 'name:' + clientName + ', city:' + clientCity
-    pendingPostMsgs.newAwait(clientChannel, )
-    taskPost = redirectMsg(postMsg, header, clientChannel, None, True, pendingPostMsgs)
-    dbFunc.addNewTask(clientId, taskPost.chat.id, taskPost.id)
+
+    cbList = redirectMsg(postMsg, header)
+    post = cbList[0](clientChannel, None)
+    pendingPostMsgs.newAwait(clientChannel, post.message_id)
+    for i in cbList[1:]:
+        pendingPostMsgs.add(clientChannel, post.message_id, i)
+    dbFunc.addNewTask(clientId, clientChannel, post.message_id)
 
 
 #   - delete data in DB and ask client
@@ -357,8 +312,10 @@ def endTask(clientId):
 #       -client starts a conversation
 def handleStartConversation(msg: telebot.types.Message):
     # TODO confirm start conversation
+
+
     client = dbFunc.getClientById(msg.from_user.id)
-    if client is None:  # client has skiped the registration
+    if client is None:  # client has skipped the registration
         bot.send_message(msg.chat.id, 'please enter /start for register')
         return
 
@@ -368,17 +325,25 @@ def handleStartConversation(msg: telebot.types.Message):
 #       -client add message to existing task
 def handleClientSide(msg: telebot.types.Message, taskInfo):
     client, group, postId = taskInfo[:3]  # skips birth info
-    redirectMsg(msg, '', group, postId, True, pendingPostMsgs)
+    cbList = redirectMsg(msg, '-client answer-')
+    if pendingPostMsgs.isWaiting(group, postId):
+        for cb in cbList:
+            pendingPostMsgs.add(group, postId, cb)
+    else:
+        for cb in cbList:
+            cb(group, postId)
 
 
 #       -handle new message from client
 @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=ALLOWED_CONTENT)
 def handleClient(msg: telebot.types.Message):
+    botLogger.debug('begin processing msg from client:' + str(msg.chat.id))
     taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
     if taskInfo is None:
         handleStartConversation(msg)
     else:
         handleClientSide(msg, taskInfo)
+    botLogger.debug('end processing msg from client:' + str(msg.chat.id))
 
 
 #   -handle consultant side
@@ -461,20 +426,21 @@ def redirectClient(msg: telebot.types.Message, clientId, gen):
 #       -handler consultant messages, ignore redireced sessions
 @bot.message_handler(func=isPostReply, content_types=ALLOWED_CONTENT)
 def handleConsultant(msg: telebot.types.Message):
+    postMsg = msg.reply_to_message
+    replyChat = postMsg.chat.id
+    replyId = postMsg.message_id
+    botLogger.debug('processing comment: chat' + str(replyChat) + ',post' + str(replyId))
+
     consultant = dbFunc.getConsultantById(msg.from_user.id)
     if consultant is None:  # consultant has skiped the registration
         bot.send_message(msg.chat.id, 'please enter /set_name <NAME> for register')
         return
 
-    postMsg = msg.reply_to_message
-    replyChat = postMsg.chat.id
-    replyId = postMsg.message_id
     task = dbFunc.getTaskByPost(replyChat, replyId)
     if task is None:
         bot.reply_to(postMsg, 'this post is not supported')
         return
 
-    botLogger.debug('processing comment:' + str(replyChat) + '-' + str(replyId))
     clientId = task[0]
     clientState = bot.get_state(clientId)
     if clientState == CLIENT_REDIR:
@@ -498,7 +464,9 @@ def handleConsultant(msg: telebot.types.Message):
             botLogger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
             bot.register_for_reply(postMsg, redirectClient, clientId, redirProc)
     else:
-        redirectMsg(msg, 'consultant name: ' + consultant[1], clientId, None, False, pendingPostMsgs)
+        cbList = redirectMsg(msg, 'consultant name: ' + consultant[1])
+        for cb in cbList:
+            cb(clientId, None)
 
 
 try:
