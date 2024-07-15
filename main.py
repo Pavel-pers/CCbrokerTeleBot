@@ -1,14 +1,24 @@
 import logging
+import queue
 
 import telebot
 from tokens import bot as botTokens
 
+import threading
+import dataclasses
+
 from locLibs import dbFunc
+from locLibs.simpleClasses import TeleBotBanF
+from locLibs.simpleClasses import PendingMessages
+from locLibs.simpleClasses import DataForInlineCB
+from locLibs.simpleClasses import MsgContent
 
 # uesr stages
 CLIENT_REDIR = 1
 CLIENT_REG = 2
+CLIENT_POSTING = 3
 ALLOWED_CONTENT = ['text', 'photo', 'document', 'audio', 'video', 'voice', 'video_note', 'sticker']
+INLINE_DELAY = 2
 # setup logger
 botLogger = logging.getLogger('bot')
 handler = logging.FileHandler('log/.log', mode='a')
@@ -16,52 +26,6 @@ formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s'
 handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
-
-
-class TeleBotBanF(telebot.TeleBot):
-    def __init__(self, *args, **kwargs):
-        if 'block_list' in kwargs:
-            self.blockUsers = kwargs['block_list']
-            kwargs.pop('block_list')
-        else:
-            self.blockUsers = set()
-        super().__init__(*args, **kwargs)
-
-    def get_updates(self, *args, **kwargs):
-        jsonEvents = telebot.apihelper.get_updates(self.token, *args, **kwargs)
-        filtData = []
-        for event in jsonEvents:
-            if 'message' in event and event['message']['chat']['id'] in self.blockUsers:
-                self.last_update_id = event['update_id']
-            else:
-                filtData.append(telebot.types.Update.de_json(event))
-        return filtData
-
-    def block_user(self, userId):
-        self.blockUsers.add(userId)
-
-
-class PendingMessages:
-    def __init__(self):
-        self.pendingQ = {}
-
-    def add(self, chatId, replyId, callback):
-        botLogger.debug(f'new cb for: chat={chatId}, reply={replyId}')
-        self.pendingQ[(chatId, replyId)].append(callback)
-
-    def isWaiting(self, chatId, replyId):
-        return (chatId, replyId) in self.pendingQ
-
-    def newAwait(self, chatId, replyId):
-        self.pendingQ[(chatId, replyId)] = []
-
-    def processCB(self, keyChat, keyReply, cbChat, cbReply):
-        cbLst = self.pendingQ.get((keyChat, keyReply), [])
-        botLogger.debug(f'execute {len(cbLst)} callbacks for: chat={keyChat}, reply={keyReply}')
-        for callback in cbLst:
-            callback(cbChat, cbReply)
-        self.pendingQ.pop((keyChat, keyReply), None)
-
 
 # TODO make it thread-friendly
 bot = TeleBotBanF(botTokens.token, threaded=False, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
@@ -218,6 +182,7 @@ def regClient(msg: telebot.types.Message, gen):
 
 @bot.message_handler(commands=['start'], func=lambda message: message.chat.type == 'private')
 def welcomeClient(msg: telebot.types.Message):
+    bot.delete_state(msg.chat.id)  # !validate
     botLogger.debug('welcome user')
     regProc = regClientGen(msg)
     reply, stopReg = next(regProc)
@@ -268,7 +233,7 @@ def changeClientName(msg: telebot.types.Message):
 # TODO realise delete group handler
 
 # functions for communication
-pendingPostMsgs = PendingMessages()  # messages which waiting telegramm repeat
+pendingPostMsgs = PendingMessages(botLogger)  # messages which waiting telegramm repeat
 
 
 #   -handle repeat message from telegram
@@ -285,6 +250,9 @@ def catchChannelMsg(msg: telebot.types.Message):
 
 
 #   -task functions
+dataForCb = DataForInlineCB()
+
+
 #       - post message, save in DB
 def addNewTask(client, postMsg: telebot.types.Message):
     clientId, clientName, clientCity, clientBind = client
@@ -309,17 +277,55 @@ def endTask(clientId):
 
 
 #   -handle client side
+#       -ignore clients we are waiting
+@bot.message_handler(content_types=ALLOWED_CONTENT,  # ! validate
+                     func=lambda message: message.chat.type == 'private' and bot.get_state(
+                         message.chat.id) == CLIENT_POSTING)
+def askToAnswerInline(msg: telebot.types.Message):
+    inline = telebot.types.InlineKeyboardMarkup()
+    inline.add(telebot.types.InlineKeyboardButton(text='cancel', callback_data='cancelPost'))
+    bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow', inline)
+
+
+#       -inline_callbacks
+@bot.callback_query_handler(func=lambda call: call.data == 'cancelPost' or call.data == 'continuePost')
+def cancel_continue_Handler(call: telebot.types.CallbackQuery):
+    chatId = call.message.chat.id
+    msgId = call.message.id
+    cbData = dataForCb.get((chatId, msgId))
+
+    bot.delete_state(call, chatId)
+    if call.data == 'cancelPost':
+        bot.edit_message_text(call.message.text, chatId, msgId)
+        bot.send_message(chatId, 'enter /rename to rename, enter /set_point to replace')
+    else:
+        if cbData is None:
+            bot.send_message(chatId, 'can you repeat your request?')
+            bot.edit_message_text(call.message.text, chatId, msgId)
+        else:
+            client, msg = cbData
+            bot.edit_message_text('message has sent', chatId, msgId)
+            addNewTask(client, msg)
+
+
 #       -client starts a conversation
 def handleStartConversation(msg: telebot.types.Message):
     # TODO confirm start conversation
-
-
     client = dbFunc.getClientById(msg.from_user.id)
     if client is None:  # client has skipped the registration
         bot.send_message(msg.chat.id, 'please enter /start for register')
         return
 
-    addNewTask(client, msg)
+    inlineKeyboard = telebot.types.InlineKeyboardMarkup()
+    cancelBtn = telebot.types.InlineKeyboardButton('cancel', callback_data='cancelPost')
+    continueBtn = telebot.types.InlineKeyboardButton('continue', callback_data='continuePost')
+    inlineKeyboard.add(cancelBtn, continueBtn)
+    pointName = dbFunc.getPointById(client[3])[2]
+    bot.set_state(msg.chat.id, )
+    reply = bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
+                             reply_markup=inlineKeyboard)
+    shrinkedMsg = MsgContent(msg)
+    dataForCb.add((reply.chat.id, reply.id), (client, shrinkedMsg), INLINE_DELAY)
 
 
 #       -client add message to existing task
@@ -363,7 +369,7 @@ def redirectClientGen(msg: telebot.types.Message, client):
 
     pointList = []
     newCity = ''
-    while len(pointList) == 0:  # ! not vertified
+    while len(pointList) == 0:
         msg = yield reply, False  # waiting for city
 
         while msg.text != '/cancel' and msg.text not in cityList:
