@@ -15,8 +15,6 @@ from locLibs.simpleClasses import MsgContent
 
 # uesr stages
 CLIENT_REDIR = 1
-CLIENT_REG = 2
-CLIENT_POSTING = 3
 ALLOWED_CONTENT = ['text', 'photo', 'document', 'audio', 'video', 'voice', 'video_note', 'sticker']
 INLINE_DELAY = 2
 # setup logger
@@ -27,7 +25,7 @@ handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
 
-# TODO make it thread-friendly
+# TODO make it thread-friendly. point, client, task, consulter make lock paradigma
 bot = TeleBotBanF(botTokens.token, threaded=False, block_list=dbFunc.getBlockList())  # auth bot, turn on sql loop
 botLogger.info('started work')
 dbFunc.mainSqlLoop.start()
@@ -180,9 +178,9 @@ def regClient(msg: telebot.types.Message, gen):
         bot.register_next_step_handler(reply, regClient, gen)
 
 
-@bot.message_handler(commands=['start'], func=lambda message: message.chat.type == 'private')
+@bot.message_handler(commands=['start'],
+                     func=lambda msg: msg.chat.type == 'private' and bot.get_state(msg.chat) is None)
 def welcomeClient(msg: telebot.types.Message):
-    bot.delete_state(msg.chat.id)  # !validate
     botLogger.debug('welcome user')
     regProc = regClientGen(msg)
     reply, stopReg = next(regProc)
@@ -203,7 +201,8 @@ def setNameConsultant(msg: telebot.types.Message):
 # -edit functions
 #   -client side
 #       -change point
-@bot.message_handler(commands=['change_point'], func=lambda message: message.chat.type == 'private')
+@bot.message_handler(commands=['change_point'],
+                     func=lambda message: message.chat.type == 'private')
 def changeClientPoint(msg: telebot.types.Message):
     client = dbFunc.getClientById(msg.chat.id)
     if client is None:
@@ -278,13 +277,17 @@ def endTask(clientId):
 
 #   -handle client side
 #       -ignore clients we are waiting
-@bot.message_handler(content_types=ALLOWED_CONTENT,  # ! validate
-                     func=lambda message: message.chat.type == 'private' and bot.get_state(
-                         message.chat.id) == CLIENT_POSTING)
-def askToAnswerInline(msg: telebot.types.Message):
+def askToAnswerInline(msg: telebot.types.Message, prevMsgId):
     inline = telebot.types.InlineKeyboardMarkup()
     inline.add(telebot.types.InlineKeyboardButton(text='cancel', callback_data='cancelPost'))
-    bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow', inline)
+    reply = None
+    try:
+        reply = bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
+                                 reply_markup=inline, reply_to_message_id=prevMsgId)
+    except telebot.apihelper.ApiTelegramException:  # this may process if only message doesn't exist
+        reply = bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
+                                 reply_markup=inline)
+    bot.register_next_step_handler(reply, askToAnswerInline, prevMsgId)
 
 
 #       -inline_callbacks
@@ -294,9 +297,9 @@ def cancel_continue_Handler(call: telebot.types.CallbackQuery):
     msgId = call.message.id
     cbData = dataForCb.get((chatId, msgId))
 
-    bot.delete_state(call, chatId)
+    bot.clear_step_handler_by_chat_id(chatId)
     if call.data == 'cancelPost':
-        bot.edit_message_text(call.message.text, chatId, msgId)
+        bot.edit_message_text('post has canceled', chatId, msgId)
         bot.send_message(chatId, 'enter /rename to rename, enter /set_point to replace')
     else:
         if cbData is None:
@@ -310,20 +313,21 @@ def cancel_continue_Handler(call: telebot.types.CallbackQuery):
 
 #       -client starts a conversation
 def handleStartConversation(msg: telebot.types.Message):
-    # TODO confirm start conversation
     client = dbFunc.getClientById(msg.from_user.id)
     if client is None:  # client has skipped the registration
         bot.send_message(msg.chat.id, 'please enter /start for register')
         return
 
-    inlineKeyboard = telebot.types.InlineKeyboardMarkup()
+    inlineKeyboard = telebot.types.InlineKeyboardMarkup()  # make keyboard
     cancelBtn = telebot.types.InlineKeyboardButton('cancel', callback_data='cancelPost')
     continueBtn = telebot.types.InlineKeyboardButton('continue', callback_data='continuePost')
     inlineKeyboard.add(cancelBtn, continueBtn)
     pointName = dbFunc.getPointById(client[3])[2]
-    bot.set_state(msg.chat.id, )
+
     reply = bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
                              reply_markup=inlineKeyboard)
+    bot.register_next_step_handler_by_chat_id(reply.chat.id, askToAnswerInline, reply.id)  # reg waiting
+
     shrinkedMsg = MsgContent(msg)
     dataForCb.add((reply.chat.id, reply.id), (client, shrinkedMsg), INLINE_DELAY)
 
