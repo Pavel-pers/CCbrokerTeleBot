@@ -58,12 +58,10 @@ class DataForInlineCB:
 
 
 class PendingMessages:
-    def __init__(self, logger: logging.Logger):
+    def __init__(self):
         self.pendingQ = {}
-        self.logger = logger
 
     def add(self, chatId, replyId, callback):
-        self.logger.debug(f'new cb for: chat={chatId}, reply={replyId}')
         self.pendingQ[(chatId, replyId)].append(callback)
 
     def isWaiting(self, chatId, replyId):
@@ -74,7 +72,6 @@ class PendingMessages:
 
     def processCB(self, keyChat, keyReply, cbChat, cbReply):
         cbLst = self.pendingQ.get((keyChat, keyReply), [])
-        self.logger.debug(f'execute {len(cbLst)} callbacks for: chat={keyChat}, reply={keyReply}')
         for callback in cbLst:
             callback(cbChat, cbReply)
         self.pendingQ.pop((keyChat, keyReply), None)
@@ -84,6 +81,7 @@ class MsgContent:
     def __init__(self, message: telebot.types.Message):
         self.content_type = message.content_type
         self.text = message.text
+        self.caption = message.caption
         self.photo = message.photo
         self.document = message.document
         self.audio = message.audio
