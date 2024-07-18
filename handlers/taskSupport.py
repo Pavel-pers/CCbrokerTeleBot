@@ -50,7 +50,7 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger):
         bot.register_next_step_handler_by_chat_id(reply.chat.id, askToAnswerInline, reply.id)  # reg waiting
 
         shrinkedMsg = simpleClasses.MsgContent(msg)
-        addCbData((reply.chat.id, reply.id), (client, shrinkedMsg))
+        addCbData((reply.chat.id, None), (client, shrinkedMsg))
 
     #       -client add message to existing task
     def handleClientSide(msg: telebot.types.Message, taskInfo):

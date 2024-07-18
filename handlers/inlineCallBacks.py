@@ -3,7 +3,7 @@ from locLibs import dbFunc
 from locLibs import botTools
 from locLibs.simpleClasses import DataForInlineCB
 import logging
-from constants import Inline, Config
+from constants import Inline, Config, UserStages
 
 dataForCb = DataForInlineCB()
 
@@ -18,8 +18,8 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
     def postCancelContinue(call: telebot.types.CallbackQuery):
         chatId = call.message.chat.id
         msgId = call.message.id
-        cbData = dataForCb.get((chatId, msgId))
-
+        cbData = dataForCb.get((chatId, None))
+        botLogger.debug('work on post cancel/continue callback: saved data: ' + str(cbData))
         bot.clear_step_handler_by_chat_id(chatId)
         if call.data == Inline.POST_CANCEL:
             bot.edit_message_text('post has canceled', chatId, msgId)
@@ -28,16 +28,14 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
             if cbData is None:
                 bot.send_message(chatId, 'can you repeat your request?')
                 bot.edit_message_text(call.message.text, chatId, msgId)
-            else:
+            else:  # client starts the conversation
                 client, msg = cbData
+                bot.set_state(client[0], UserStages.CLIENT_IN_CONVERSATION)
                 bot.edit_message_text('message has sent', chatId, msgId)
                 botTools.addNewTask(client, msg)
 
     @bot.callback_query_handler(func=lambda call: call.data == Inline.POST_QUIT)
     def postQuit(call: telebot.types.CallbackQuery):
         chatId = call.message.chat.id
-        task = dbFunc.getTaskByClientId(chatId)
-        group = task[1]
-        postId = task[2]
-        bot.send_message(group, 'client has closed task', reply_to_message_id=postId)
+        bot.edit_message_text(call.message.text, chatId, call.message.id)
         botTools.endTask(chatId)

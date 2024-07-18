@@ -2,6 +2,7 @@ import telebot
 from locLibs import dbFunc
 from locLibs.botTools import *
 import logging
+from handlers.decorators.stageFileters import regClient as regDecorator
 
 
 def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
@@ -60,6 +61,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
     # begin work with client
     @bot.message_handler(commands=['start'],
                          func=lambda msg: msg.chat.type == 'private' and bot.get_state(msg.chat) is None)
+    @regDecorator(bot)
     def welcomeClient(msg: telebot.types.Message):
         botLogger.debug('welcome user')
         regProc = regClientGen(msg)
@@ -71,6 +73,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
     #   -change point
     @bot.message_handler(commands=['change_point'],
                          func=lambda message: message.chat.type == 'private')
+    @regDecorator(bot)
     def changeClientPoint(msg: telebot.types.Message):
         client = dbFunc.getClientById(msg.chat.id)
         if client is None:
@@ -84,6 +87,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
 
     #   -change name
     @bot.message_handler(commands=['set_name', 'rename'], func=lambda message: message.chat.type == 'private')
+    @regDecorator(bot)
     def changeClientName(msg: telebot.types.Message):
         client = dbFunc.getClientById(msg.chat.id)
         if client is None:

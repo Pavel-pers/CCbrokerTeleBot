@@ -86,5 +86,6 @@ def addNewTask(client, postMsg: telebot.types.Message):
 #   -delete data in DB and ask client
 def endTask(clientId):
     # TODO ask for rate
+    bot.delete_state(clientId)
     bot.send_message(clientId, 'the end of conversation')
     dbFunc.delTask(clientId)
