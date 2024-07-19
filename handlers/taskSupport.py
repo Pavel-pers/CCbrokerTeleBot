@@ -14,16 +14,9 @@ from handlers import threadWorker
 clientLock = threaded.InProcHandlers()
 
 
-class Handlers:
-    def set_bot(self, bot):
-        self.bot = bot
-
-    def set_logger(self, logger):
-        self.logger = logger
-
+class TaskHandlers(simpleClasses.Handlers):
     def __init__(self):
-        self.bot: telebot.TeleBot = None
-        self.logger: logging.Logger = None
+        super().__init__()
 
     # telegram side
     def catchChannelMsg(self, msg: telebot.types.Message):
@@ -206,20 +199,16 @@ class Handlers:
                 cb(clientId, None)
 
 
-handlers = Handlers()
+handlers = TaskHandlers()
 clientQ = queue.Queue()
 cosultantQ = queue.Queue()
 
 
-def init(bot: telebot.TeleBot, logger: logging.Logger):
-    handlers.set_bot(bot)
-    handlers.set_logger(logger)
-
-
 def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
     # set up handlers and thread pool
-    init(bot=bot, logger=botLogger)
-    finishEv = threading.Event()
+    handlers.set_bot(bot)
+    handlers.set_logger(botLogger)
+
     workerPool = [threading.Thread(target=threadWorker.worker, args=(clientQ, botLogger, ignoreErrs)) for i in range(5)]
     for i in workerPool:
         i.start()
@@ -238,8 +227,9 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr
 
 def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
     # set up handlers and thread pool
-    init(bot=bot, logger=botLogger)
-    finishEv = threading.Event()
+    handlers.set_bot(bot)
+    handlers.set_logger(botLogger)
+
     workerPool = [threading.Thread(target=threadWorker.worker, args=(cosultantQ, botLogger, ignoreErrs))
                   for i in range(3)]
     for i in workerPool:

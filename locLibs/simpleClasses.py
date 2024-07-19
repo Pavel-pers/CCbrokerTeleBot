@@ -90,3 +90,15 @@ class MsgContent:
         self.video_note = message.video_note
         self.sticker = message.sticker
         self.media_group_id = message.media_group_id
+
+
+class Handlers:
+    def set_bot(self, bot):
+        self.bot = bot
+
+    def set_logger(self, logger):
+        self.logger = logger
+
+    def __init__(self):
+        self.bot: telebot.TeleBot = None
+        self.logger: logging.Logger = None
