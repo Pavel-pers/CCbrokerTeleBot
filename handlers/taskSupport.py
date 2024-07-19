@@ -1,42 +1,60 @@
 import logging
+import threading
+
 import telebot
 from constants import *
 from locLibs import dbFunc
 from locLibs import simpleClasses
 import locLibs.botTools as botTools
 from handlers.inlineCallBacks import addCbData
+from handlers.decorators import threaded
+import queue
+
+clientLock = threaded.InProcHandlers()
 
 
-def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger):
-    # -handle repeat message from telegram
-    @bot.message_handler(func=lambda message: message.from_user.id == 777000 and botTools.isMsgFromPoint(message),
-                         content_types=Config.ALLOWED_CONTENT)
-    def catchChannelMsg(msg: telebot.types.Message):
+class Handlers:
+    def set_bot(self, bot):
+        self.bot = bot
+
+    def set_logger(self, logger):
+        self.logger = logger
+
+    def __init__(self):
+        self.bot = None
+        self.logger = None
+
+    # telegram side
+    def catchChannelMsg(self, msg: telebot.types.Message):
         originGr = msg.forward_origin.chat.id
         originId = msg.forward_origin.message_id
         curGr = msg.chat.id
         curId = msg.message_id
-        botLogger.debug(
+        self.logger.debug(
             f'catched telegram msg: {repr(msg.text)}. {originGr}, {originId}, changing on: {curGr}, {curId}')
         dbFunc.changeTaskPost(originGr, originId, curGr, curId)
         botTools.processComments(originGr, originId, curGr, curId)
 
-    def askToAnswerInline(msg: telebot.types.Message, prevMsgId):
+    # client side
+    #   -client hasn't answer inline question
+    def askToAnswerInline(self, msg: telebot.types.Message, prevMsgId):
         inline = telebot.types.InlineKeyboardMarkup()
         inline.add(telebot.types.InlineKeyboardButton(text='cancel', callback_data=Inline.POST_CANCEL))
         reply = None
         try:
-            reply = bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
-                                     reply_markup=inline, reply_to_message_id=prevMsgId)
+            reply = self.bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
+                                          reply_markup=inline, reply_to_message_id=prevMsgId)
         except telebot.apihelper.ApiTelegramException:  # this may process if only message doesn't exist
-            reply = bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
-                                     reply_markup=inline)
-        bot.register_next_step_handler(reply, askToAnswerInline, prevMsgId)
+            reply = self.bot.send_message(msg.chat.id, 'please answer previous question, or press button bellow',
+                                          reply_markup=inline)
+        self.bot.register_next_step_handler(
+            reply, lambda recMsg: clientQ.put((self.askToAnswerInline, (recMsg,))), prevMsgId)
 
-    def handleStartConversation(msg: telebot.types.Message):
+    #   -process first message from client
+    def handleStartConversation(self, msg: telebot.types.Message):
         client = dbFunc.getClientById(msg.from_user.id)
         if client is None:  # client has skipped the registration
-            bot.send_message(msg.chat.id, 'please enter /start for register')
+            self.bot.send_message(msg.chat.id, 'please enter /start for register')
             return
 
         inlineKeyboard = telebot.types.InlineKeyboardMarkup()  # make keyboard
@@ -45,40 +63,40 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger):
         inlineKeyboard.add(cancelBtn, continueBtn)
         pointName = dbFunc.getPointById(client[3])[2]
 
-        reply = bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
-                                 reply_markup=inlineKeyboard)
-        bot.register_next_step_handler_by_chat_id(reply.chat.id, askToAnswerInline, reply.id)  # reg waiting
+        reply = self.bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
+                                      reply_markup=inlineKeyboard)
+        self.bot.register_next_step_handler_by_chat_id(
+            reply.chat.id, lambda recMsg: clientQ.put((self.askToAnswerInline, (recMsg,))), reply.id)  # reg waiting
 
         shrinkedMsg = simpleClasses.MsgContent(msg)
         addCbData((reply.chat.id, None), (client, shrinkedMsg))
 
-    #       -client add message to existing task
-    def handleClientSide(msg: telebot.types.Message, taskInfo):
+    #   -client add message to existing task
+    def handleClientSide(self, msg: telebot.types.Message, taskInfo):
         client, group, postId = taskInfo[:3]  # skips birth info
         cbList = botTools.redirectMsg(msg, '-client answer-')
         botTools.addComment(group, postId, cbList)
 
-    #       -handle new message from client
-    @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)
-    def handleClient(msg: telebot.types.Message):
-        botLogger.debug('begin processing msg from client:' + str(msg.chat.id))
+    #   - entry point
+    @threaded.thread_friendly(clientLock, lambda args: args[1].chat.id)
+    def handleClient(self, msg: telebot.types.Message):
+        self.logger.debug('begin processing msg from client:' + str(msg.chat.id))
         taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
         if taskInfo is None:
-            handleStartConversation(msg)
+            self.handleStartConversation(msg)
         else:
-            handleClientSide(msg, taskInfo)
-        botLogger.debug('end processing msg from client:' + str(msg.chat.id))
+            self.handleClientSide(msg, taskInfo)
+        self.logger.debug('end processing msg from client:' + str(msg.chat.id))
 
-
-def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger):
-    # redir functions
-    def redirectClientGen(msg: telebot.types.Message, client):
+    # consultant side
+    #   -redir functions
+    def redirectClientGen(self, msg: telebot.types.Message, client):
         postMsg = msg.reply_to_message
         clientId, clientName, clientCity, clientBind = client
-        bot.send_message(clientId, 'you gonna redirect')
+        self.bot.send_message(clientId, 'you gonna redirect')
 
         cityList = dbFunc.getRegCityList()
-        reply = bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
+        reply = self.bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
 
         pointList = []
         newCity = ''
@@ -86,11 +104,11 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger):
             msg = yield reply, False  # waiting for city
 
             while msg.text != '/cancel' and msg.text not in cityList:
-                reply = bot.reply_to(postMsg, 'incorrect city')
+                reply = self.bot.reply_to(postMsg, 'incorrect city')
                 msg = yield reply, False
 
             if msg.text == '/cancel':
-                bot.send_message(clientId, 'redirection has stoped')
+                self.bot.send_message(clientId, 'redirection has stoped')
                 yield reply, True
 
             newCity = msg.text
@@ -100,31 +118,31 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger):
                 pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
 
             if len(pointList) == 0:
-                bot.reply_to(postMsg, 'there are no suitable points')
+                self.bot.reply_to(postMsg, 'there are no suitable points')
 
         pointNameList = list(map(lambda x: x[2], pointList))
-        reply = bot.reply_to(postMsg, 'ask about point\npoints:\n' + '\n'.join(pointNameList))
+        reply = self.bot.reply_to(postMsg, 'ask about point\npoints:\n' + '\n'.join(pointNameList))
 
         msg = yield reply, False  # waiting for point
         while msg.text != '/cancel' and msg.text not in pointNameList:
-            reply = bot.reply_to(postMsg, 'incorrect point')
+            reply = self.bot.reply_to(postMsg, 'incorrect point')
             msg = yield reply, False
 
         if msg.text == '/cancel':
-            bot.send_message(clientId, 'redirection has stoped')
+            self.bot.send_message(clientId, 'redirection has stoped')
             yield reply, True
 
         newPoint = next(i[0] for i in pointList if i[2] == msg.text)
 
-        reply = bot.reply_to(postMsg, 'ask about post text')
+        reply = self.bot.reply_to(postMsg, 'ask about post text')
         msg = yield reply, False  # waiting for post text
 
         if msg.text == '/cancel':
-            bot.send_message(clientId, 'redirection has stoped')
+            self.bot.send_message(clientId, 'redirection has stoped')
             yield reply, True
 
-        bot.send_message(clientId, 'redirect successfully')
-        reply = bot.reply_to(postMsg, 'redirect successfully')
+        self.bot.send_message(clientId, 'redirect successfully')
+        reply = self.bot.reply_to(postMsg, 'redirect successfully')
 
         dbFunc.delTask(clientId)
         dbFunc.changeClientBind(clientId, newCity, newPoint)
@@ -132,35 +150,34 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger):
         botTools.addNewTask(newClient, msg)
         yield reply, True
 
-    def redirectClient(msg: telebot.types.Message, clientId, gen):
+    def redirectClient(self, msg: telebot.types.Message, clientId, gen):
         post = msg.reply_to_message
         reply, stop = gen.send(msg)
         if not stop:
-            bot.register_for_reply(post, redirectClient, clientId, gen)
+            self.bot.register_for_reply(
+                post, lambda recMsg: cosultantQ.put((self.redirectClient, (recMsg,))), clientId, gen)
         else:
-            bot.delete_state(clientId)
+            self.bot.delete_state(clientId)
 
-        #       -handler consultant messages, ignore redireced sessions
-
-    @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
-    def handleConsultant(msg: telebot.types.Message):
+    #   -entry point
+    def handleConsultant(self, msg: telebot.types.Message):
         postMsg = msg.reply_to_message
         replyChat = postMsg.chat.id
         replyId = postMsg.message_id
-        botLogger.debug('processing comment: chat' + str(replyChat) + ',post' + str(replyId))
+        self.logger.debug('processing comment: chat' + str(replyChat) + ',post' + str(replyId))
 
         consultant = dbFunc.getConsultantById(msg.from_user.id)
         if consultant is None:  # consultant has skiped the registration
-            bot.send_message(msg.chat.id, 'please enter /set_name <NAME> for register')
+            self.bot.send_message(msg.chat.id, 'please enter /set_name <NAME> for register')
             return
 
         task = dbFunc.getTaskByPost(replyChat, replyId)
         if task is None:
-            bot.reply_to(postMsg, 'this post is not supported')
+            self.bot.reply_to(postMsg, 'this post is not supported')
             return
 
         clientId = task[0]
-        clientState = bot.get_state(clientId)
+        clientState = self.bot.get_state(clientId)
         if clientState == UserStages.CLIENT_REDIR:
             return
 
@@ -169,19 +186,77 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger):
         elif msg.text == '/ban':
             dbFunc.delTask(clientId)
             dbFunc.delClient(clientId)
-            bot.send_message(clientId, 'you have banned!')
-            bot.reply_to(postMsg, 'banned')
+            self.bot.send_message(clientId, 'you have banned!')
+            self.bot.reply_to(postMsg, 'banned')
             botTools.blockUser(clientId)
         elif msg.text == '/redirect':
-            bot.set_state(clientId, UserStages.CLIENT_REDIR)
+            self.bot.set_state(clientId, UserStages.CLIENT_REDIR)
 
             client = dbFunc.getClientById(clientId)
-            redirProc = redirectClientGen(msg, client)
+            redirProc = self.redirectClientGen(msg, client)
             reply, stop = next(redirProc)
             if not stop:
-                botLogger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
-                bot.register_for_reply(postMsg, redirectClient, clientId, redirProc)
+                self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
+                self.bot.register_for_reply(
+                    postMsg, lambda recMsg: cosultantQ.put((self.redirectClient, (recMsg,))), clientId, redirProc)
         else:
             cbList = botTools.redirectMsg(msg, 'consultant name: ' + consultant[1])
             for cb in cbList:
                 cb(clientId, None)
+
+
+handlers = Handlers()
+clientQ = queue.Queue()
+cosultantQ = queue.Queue()
+
+
+def worker(workQ: queue.Queue, finishEv: threading.Event, logger: logging.Logger, ignoreErrs):
+    while not workQ.empty() or not finishEv.is_set():
+        try:
+            func, args = workQ.get(timeout=60)
+        except queue.Empty:
+            continue
+        try:
+            func(*args)
+        except Exception as e:
+            logger.error(str(e))
+            if not ignoreErrs:
+                finishEv.set()
+
+
+def init(bot: telebot.TeleBot, logger: logging.Logger):
+    handlers.set_bot(bot)
+    handlers.set_logger(logger)
+
+
+def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
+    # set up handlers and thread pool
+    init(bot=bot, logger=botLogger)
+    finishEv = threading.Event()
+    workerPool = [threading.Thread(target=worker, args=(clientQ, finishEv, botLogger, ignoreErrs)) for i in range(5)]
+    for i in workerPool:
+        i.start()
+
+    # add handlers to telebot
+    @bot.message_handler(func=lambda message: message.from_user.id == 777000 and botTools.isMsgFromPoint(message),
+                         content_types=Config.ALLOWED_CONTENT)
+    def catchProducer(msg: telebot.types.Message):
+        clientQ.put((handlers.catchChannelMsg, (msg,)))
+
+    @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)
+    def clientProducer(msg: telebot.types.Message):
+        clientQ.put((handlers.handleClient, (msg,)))
+
+
+def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
+    # set up handlers and thread pool
+    init(bot=bot, logger=botLogger)
+    finishEv = threading.Event()
+    workerPool = [threading.Thread(target=worker, args=(cosultantQ, finishEv, botLogger, ignoreErrs)) for i in range(3)]
+    for i in workerPool:
+        i.start()
+
+    # add handlers to telebot
+    @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
+    def consultantProducer(msg: telebot.types.Message):
+        cosultantQ.put((handlers.handleConsultant, (msg,)))
