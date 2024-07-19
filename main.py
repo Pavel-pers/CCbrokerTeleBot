@@ -14,14 +14,11 @@ handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
 
-# TODO make it thread-friendly. point, client, task, consulter make lock paradigma
 bot = simpleClasses.TeleBotBanF(botTokens.token, threaded=False, block_list=dbFunc.getBlockList())
 locLibs.botTools.bot = bot
 dbFunc.mainSqlLoop.start()
 
 handlers.startListen(bot, botLogger)
-
-# handlers.startListen(bot, botLogger)
 # TODO realise delete group handler
 
 try:

@@ -38,6 +38,9 @@ def redirectMsg(msg: telebot.types.Message, header):
     if msg.content_type == 'sticker':
         return (lambda ch, repl: bot.send_message(ch, header + '\nsent a sticker', reply_to_message_id=repl),
                 lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
+    if msg.content_type == 'media_group':
+        msg.photo[0].caption = header + '\n' + (msg.photo[0].caption or '')
+        return (lambda ch, repl: bot.send_media_group(ch, msg.photo, reply_to_message_id=repl),)
 
 
 def waitRelpyFromAdmin(reply, stopReg):

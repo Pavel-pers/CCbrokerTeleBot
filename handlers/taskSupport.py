@@ -8,6 +8,8 @@ from locLibs import simpleClasses
 import locLibs.botTools as botTools
 from handlers.inlineCallBacks import addCbData
 from handlers.decorators import threaded
+from handlers.decorators import photoGrouping
+
 import queue
 
 clientLock = threaded.InProcHandlers()
@@ -21,8 +23,8 @@ class Handlers:
         self.logger = logger
 
     def __init__(self):
-        self.bot = None
-        self.logger = None
+        self.bot: telebot.TeleBot = None
+        self.logger: logging.Logger = None
 
     # telegram side
     def catchChannelMsg(self, msg: telebot.types.Message):
@@ -222,6 +224,7 @@ def worker(workQ: queue.Queue, finishEv: threading.Event, logger: logging.Logger
             logger.error(str(e))
             if not ignoreErrs:
                 finishEv.set()
+                raise e
 
 
 def init(bot: telebot.TeleBot, logger: logging.Logger):
@@ -244,6 +247,7 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr
         clientQ.put((handlers.catchChannelMsg, (msg,)))
 
     @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)
+    @photoGrouping.decorator
     def clientProducer(msg: telebot.types.Message):
         clientQ.put((handlers.handleClient, (msg,)))
 
@@ -257,6 +261,8 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignor
         i.start()
 
     # add handlers to telebot
+
     @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
+    @photoGrouping.decorator
     def consultantProducer(msg: telebot.types.Message):
         cosultantQ.put((handlers.handleConsultant, (msg,)))
