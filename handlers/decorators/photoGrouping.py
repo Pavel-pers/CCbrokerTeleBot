@@ -59,21 +59,23 @@ def parseImgGroup(handler, firstMsg: telebot.types.Message):
 
 
 def isWaiting(mediaId, blocking):
+    if mediaId is None:
+        return False
     if blocking:
         mediaInfoLock.acquire()
-        result = mediaId in waitingMedia
+        result = int(mediaId) in waitingMedia
         if not result:
             mediaInfoLock.release()
         return result
     else:
         with mediaInfoLock:
-            return mediaId in waitingMedia
+            return int(mediaId) in waitingMedia
 
 
 def startListen(bot: telebot.TeleBot, logger: logging.Logger):
     threading.Thread(target=photoCollector, daemon=True).start()
 
-    @bot.message_handler(content_types=['photo'], func=lambda msg: isWaiting(int(msg.media_group_id), True))
+    @bot.message_handler(content_types=['photo'], func=lambda msg: isWaiting(msg.media_group_id, True))
     def recievePhoto(msg: telebot.types.Message):
         media = waitingMedia[int(msg.media_group_id)][0]
         media.append(telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption))

@@ -1,16 +1,15 @@
-import logging
 import threading
-
+import queue
 import telebot
+import logging
+
 from constants import *
 from locLibs import dbFunc
 from locLibs import simpleClasses
-import locLibs.botTools as botTools
+from locLibs import botTools
 from handlers.inlineCallBacks import addCbData
-from handlers.decorators import threaded
-from handlers.decorators import photoGrouping
-
-import queue
+from handlers.decorators import threaded, photoGrouping
+from handlers import threadWorker
 
 clientLock = threaded.InProcHandlers()
 
@@ -212,21 +211,6 @@ clientQ = queue.Queue()
 cosultantQ = queue.Queue()
 
 
-def worker(workQ: queue.Queue, finishEv: threading.Event, logger: logging.Logger, ignoreErrs):
-    while not workQ.empty() or not finishEv.is_set():
-        try:
-            func, args = workQ.get(timeout=60)
-        except queue.Empty:
-            continue
-        try:
-            func(*args)
-        except Exception as e:
-            logger.error(str(e))
-            if not ignoreErrs:
-                finishEv.set()
-                raise e
-
-
 def init(bot: telebot.TeleBot, logger: logging.Logger):
     handlers.set_bot(bot)
     handlers.set_logger(logger)
@@ -236,7 +220,7 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr
     # set up handlers and thread pool
     init(bot=bot, logger=botLogger)
     finishEv = threading.Event()
-    workerPool = [threading.Thread(target=worker, args=(clientQ, finishEv, botLogger, ignoreErrs)) for i in range(5)]
+    workerPool = [threading.Thread(target=threadWorker.worker, args=(clientQ, botLogger, ignoreErrs)) for i in range(5)]
     for i in workerPool:
         i.start()
 
@@ -256,7 +240,8 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignor
     # set up handlers and thread pool
     init(bot=bot, logger=botLogger)
     finishEv = threading.Event()
-    workerPool = [threading.Thread(target=worker, args=(cosultantQ, finishEv, botLogger, ignoreErrs)) for i in range(3)]
+    workerPool = [threading.Thread(target=threadWorker.worker, args=(cosultantQ, botLogger, ignoreErrs))
+                  for i in range(3)]
     for i in workerPool:
         i.start()
 
