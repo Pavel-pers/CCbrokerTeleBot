@@ -48,12 +48,12 @@ def redirectMsg(msg: telebot.types.Message, header):
 
 
 def isFromAdmin(msg: telebot.types.Message):
-    return bot.get_chat_member(msg.chat.id, msg.from_user.id).status not in ['administrator', 'creator']
+    return bot.get_chat_member(msg.chat.id, msg.from_user.id).status in ['administrator', 'creator']
 
 
 def waitRelpyFromAdmin(reply, stopReg):
     msg = yield reply, stopReg
-    while isFromAdmin(msg):
+    while not isFromAdmin(msg):
         reply = bot.send_message(msg.chat.id, 'you are not admin..')
         msg = yield reply, False
     return msg
@@ -71,7 +71,7 @@ def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool):  # 
     answer = ''
     while answer not in answerList and not (answer.isdigit() and 0 < int(answer) <= len(answerList)):
         if answer:
-            reply = bot.send_message(chatId, 'incorect format')
+            reply = bot.send_message(chatId, 'incorect format', reply_markup=keyboard)
 
         if onlyAdmin:
             msg = yield from waitRelpyFromAdmin(reply, False)

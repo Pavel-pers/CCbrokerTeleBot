@@ -1,6 +1,6 @@
 import telebot
 from locLibs import dbFunc
-from locLibs.botTools import *
+from locLibs import botTools
 import logging
 from handlers.decorators.stageFileters import regClient as regDecorator
 
@@ -14,35 +14,18 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
             client = (msg.text, client[1], client[2])
 
         if client[1] is None:
-            cityKeyboard = telebot.types.ReplyKeyboardMarkup()  # prepare keybaard
             cityList = dbFunc.getRegCityList()
-            for city in cityList:
-                cityKeyboard.add(city)
-
-            reply = bot.send_message(msg.chat.id, 'ask about city, say about /rename', reply_markup=cityKeyboard)
-            msg = yield reply, False
-            while msg.text not in cityList:  # wait for correct city
-                reply = bot.send_message(msg.chat.id, 'incorrect city', reply_markup=cityKeyboard)
-                msg = yield reply, False
-
-            client = (client[0], msg.text, client[2])
-        clientCity = client[1]
+            cityIndex = yield from botTools.askWithKeyboard(msg.chat.id, 'ask about city', cityList, False)
+            clientCity = cityList[cityIndex]
+            client = (client[0], clientCity, client[2])
+        else:
+            clientCity = client[1]
 
         if client[2] is None:
-            pointKeyboard = telebot.types.ReplyKeyboardMarkup()  # prepare keyboard
             pointList = dbFunc.getPointsByCity(clientCity)
-            for point in pointList:
-                pointKeyboard.add(point[2])
-
-            reply = bot.send_message(msg.chat.id, 'ask about point, say about /change_point',
-                                     reply_markup=pointKeyboard)
-            msg = yield reply, False
-            while msg.text not in map(lambda el: el[2], pointList):  # wait for correct point
-                reply = bot.send_message(msg.chat.id, 'incorrect point', reply_markup=pointKeyboard)
-                msg = yield reply, False
-
-            # find point by point name
-            clientBindId = next(pTuple for pTuple in pointList if pTuple[2] == msg.text and pTuple[1] == clientCity)[0]
+            pointIndex = yield from botTools.askWithKeyboard(msg.chat.id, 'ask about point, say about /change_point',
+                                                             list(map(lambda x: x[2], pointList)), False)
+            clientBindId = pointList[pointIndex][0]
             client = (client[0], client[1], clientBindId)
 
         botLogger.debug('saving client:' + str((msg.from_user.id, client)))
