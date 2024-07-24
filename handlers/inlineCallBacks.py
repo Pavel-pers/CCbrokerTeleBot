@@ -46,6 +46,20 @@ class CbHandlers(Handlers):
         self.bot.edit_message_text(call.message.text, chatId, call.message.id)
         botTools.endTask(chatId)
 
+    def rateHandler(self, call: telebot.types.CallbackQuery):
+        rate = int(call.data.split(':')[1])
+        chatId = call.message.chat.id
+        messageId = call.message.id
+        activeIds = dataForCb.get((chatId, messageId))
+        if activeIds is None:
+            self.logger.warning('client rate deleted post')
+            self.bot.edit_message_text('thanks!', chatId, messageId)
+            return
+
+        self.bot.edit_message_text('thanks! Rate:' + str(rate), chatId, messageId)
+        for consultant in activeIds:
+            dbFunc.addRateConsultant(consultant, rate)
+
 
 handlers = CbHandlers()
 
@@ -66,3 +80,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr=False
     @bot.callback_query_handler(func=lambda call: call.data == Inline.POST_QUIT)
     def postQuit(call: telebot.types.CallbackQuery):
         threadQ.put((handlers.postQuit, (call,)))
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith(Inline.RATE_PREF))
+    def rateHandler(call: telebot.types.CallbackQuery):
+        threadQ.put((handlers.rateHandler, (call,)))

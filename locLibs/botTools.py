@@ -1,6 +1,8 @@
 import telebot
 from locLibs import dbFunc
 from locLibs import simpleClasses
+from handlers.inlineCallBacks import addCbData
+from constants import Emoji, Inline
 
 bot: telebot.TeleBot
 
@@ -89,6 +91,11 @@ def addNewTask(client, postMsg: telebot.types.Message):
 #   -delete data in DB and ask client
 def endTask(clientId):
     # TODO ask for rate
+    inline = telebot.types.InlineKeyboardMarkup(row_width=5)
+    for i in range(1, 6):
+        inline.add(telebot.types.InlineKeyboardButton(Emoji.RATE[i], callback_data=Inline.RATE_PREF + str(i)))
+
+    reply = bot.send_message(clientId, 'the end of conversation, please rate', reply_markup=inline)
+    addCbData((clientId, reply.message_id), dbFunc.getActiveIdsById(clientId))
     bot.delete_state(clientId)
-    bot.send_message(clientId, 'the end of conversation')
     dbFunc.delTask(clientId)

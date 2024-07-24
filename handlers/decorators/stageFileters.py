@@ -6,7 +6,6 @@ def regClient(bot: telebot.TeleBot):
     def decorator(func):
         def wrapper(msg: telebot.types.Message):
             if bot.get_state(msg.chat.id) is None:
-                print(bot.get_state(msg.chat.id))
                 return func(msg)
             elif bot.get_state(msg.chat.id) == UserStages.CLIENT_IN_CONVERSATION:
                 inline = telebot.types.InlineKeyboardMarkup()

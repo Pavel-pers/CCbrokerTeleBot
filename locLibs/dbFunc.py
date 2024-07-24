@@ -6,6 +6,7 @@ import queue
 import logging
 
 import time
+from sys import argv as sysArgv
 
 dbLogger = logging.getLogger('DB_main')
 handler = logging.FileHandler('log/.log', mode='a')
@@ -16,12 +17,13 @@ dbLogger.setLevel(logging.DEBUG)
 
 dbConn = sqlite3.connect('data/database.db', check_same_thread=False)
 if __name__ == "__main__":
-    print('create table')
+    print('preparing tables')
     dbCurr = dbConn.cursor()
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Tasks(
         clientId INTEGER PRIMARY KEY,
         groupId INTEGER,
         postId INTEGER,
+        activeIds TEXT DEFAULT "" NOT NULL,
         birthTime INTEGER
     )""")
     dbConn.commit()
@@ -37,8 +39,8 @@ if __name__ == "__main__":
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Consultants(
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
-        rate INTEGER DEFAULT 0,
-        answers INTEGER DEFAULT 0,
+        ansCnt INTEGER DEFAULT 0,
+        rateSm INTEGER DEFAULT 0,
         bonus INTEGER DEFAULT 0
     );""")
     dbConn.commit()
@@ -50,6 +52,8 @@ if __name__ == "__main__":
         workH TEXT DEFAULT NULL 
     );""")
     dbConn.commit()
+
+    print("done")
 
 
 # -block list functions
@@ -287,6 +291,18 @@ def getConsultantById(userId, loop: SqlLoop = mainSqlLoop):
     return task.wait()
 
 
+def addRateConsultant(consultantId: int, rate: int, loop: SqlLoop = mainSqlLoop):
+    rate = int(rate)
+    getComm = ('SELECT ansCnt,rateSm FROM Consultants WHERE id=?', (consultantId,))
+
+    def onProc(dbCur: sqlite3.Cursor):
+        ansCnt, rateSm = dbCur.fetchone()
+        updComm = ('UPDATE Consultants SET ansCnt=?, rateSm=? WHERE id=?', (ansCnt + 1, rateSm + rate, consultantId))
+        loop.addTask(updComm, lambda dbCur1: dbConn.commit())
+
+    loop.addTask(getComm, onProc)
+
+
 # task requests
 def addNewTask(clientId, groupId, postId, loop: SqlLoop = mainSqlLoop):
     birthTime = int(time.time() // 60)  # ? save time info in minutes
@@ -317,3 +333,37 @@ def getTaskByPost(groupId, postId, loop: SqlLoop = mainSqlLoop):
 def delTask(clientId, loop: SqlLoop = mainSqlLoop):
     command = ('DELETE FROM Tasks WHERE clientId=?', (clientId,))
     task = loop.addTask(command, lambda dbCur: dbConn.commit())
+
+
+def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):
+    getComm = ('SELECT activeIds FROM Tasks WHERE clientId = ?', (int(clientId),))
+
+    def onProc(dbCur: sqlite3.Cursor):
+        activeIds = dbCur.fetchone()[0]
+        if activeId not in activeIds.split(';'):
+            addComm = (
+                'UPDATE Tasks SET activeIds = ? WHERE  clientId = ?', (activeIds + str(activeId) + ';', int(clientId)))
+            loop.addTask(addComm, lambda dbCur1: dbConn.commit())
+
+    loop.addTask(getComm, onProc)
+
+
+def getActiveIdsById(clientId, loop: SqlLoop = mainSqlLoop):
+    getComm = ('SELECT activeIds FROM Tasks WHERE clientId=?', (clientId,))
+    task = loop.addTask(getComm, lambda dbCur: dbCur.fetchone()[0])
+    return task.wait().split(';')[:-1]
+
+
+if __name__ == '__main__' and len(sysArgv) > 1 and sysArgv[1] == '-t':
+    mainSqlLoop.start()
+    funcDict = globals()
+    funcName = ''
+    while funcName != 'close':
+        funcName = input('func name:')
+        if funcName not in funcDict:
+            continue
+        func = funcDict[funcName]
+        args = input('args({0}):'.format(','.join(func.__code__.co_varnames[:func.__code__.co_argcount]))).split(',')
+        print(func(*args))
+
+    mainSqlLoop.killLoop(True)

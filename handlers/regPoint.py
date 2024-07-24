@@ -1,6 +1,6 @@
 import telebot
 from locLibs import dbFunc
-from locLibs.botTools import *
+from locLibs import botTools
 import logging
 
 
@@ -13,17 +13,17 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
             cityKeyboard.add(city)
 
         reply = bot.send_message(msg.chat.id, 'welcome group, ask about city', reply_markup=cityKeyboard)
-        msg: telebot.types.Message = yield from waitRelpyFromAdmin(reply, False)
+        msg: telebot.types.Message = yield from botTools.waitRelpyFromAdmin(reply, False)
         pointCity = msg.text
 
         while pointCity not in cityList:
             reply = bot.send_message(msg.chat.id, 'incorrect city', reply_markup=cityKeyboard)
-            msg = yield from waitRelpyFromAdmin(reply, False)
+            msg = yield from botTools.waitRelpyFromAdmin(reply, False)
             pointCity = msg.text
 
         reply = bot.send_message(msg.chat.id, 'ask about name say about /rename',
                                  reply_markup=telebot.types.ReplyKeyboardRemove())
-        msg = yield from waitRelpyFromAdmin(reply, False)
+        msg = yield from botTools.waitRelpyFromAdmin(reply, False)
         pointName = msg.text
 
         # TODO ask about work hours

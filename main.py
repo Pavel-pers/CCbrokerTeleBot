@@ -24,5 +24,5 @@ handlers.startListen(bot, botLogger)
 try:
     bot.polling(none_stop=True)
 except Exception as err:
-    dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown loop
+    dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown the loop
     raise err

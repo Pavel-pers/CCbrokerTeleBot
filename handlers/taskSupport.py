@@ -194,6 +194,7 @@ class TaskHandlers(simpleClasses.Handlers):
                 self.bot.register_for_reply(
                     postMsg, lambda recMsg: cosultantQ.put((self.redirectClient, (recMsg,))), clientId, redirProc)
         else:
+            dbFunc.addNewActive(clientId, consultant[0])
             cbList = botTools.redirectMsg(msg, 'consultant name: ' + consultant[1])
             for cb in cbList:
                 cb(clientId, None)
