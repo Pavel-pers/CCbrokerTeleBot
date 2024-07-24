@@ -1,4 +1,6 @@
 import telebot
+from telebot.types import KeyboardButton
+
 from locLibs import dbFunc
 from locLibs import simpleClasses
 from handlers.inlineCallBacks import addCbData
@@ -45,12 +47,39 @@ def redirectMsg(msg: telebot.types.Message, header):
         return (lambda ch, repl: bot.send_media_group(ch, msg.photo, reply_to_message_id=repl),)
 
 
+def isFromAdmin(msg: telebot.types.Message):
+    return bot.get_chat_member(msg.chat.id, msg.from_user.id).status not in ['administrator', 'creator']
+
+
 def waitRelpyFromAdmin(reply, stopReg):
     msg = yield reply, stopReg
-    while bot.get_chat_member(msg.chat.id, msg.from_user.id).status not in ['administrator', 'creator']:
+    while isFromAdmin(msg):
         reply = bot.send_message(msg.chat.id, 'you are not admin..')
         msg = yield reply, False
     return msg
+
+
+def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool):  # !use only with generators
+    keyboard = telebot.types.ReplyKeyboardMarkup()
+    text = header + '\n'
+    for i in range(len(answerList)):
+        text += str(i + 1) + ': ' + answerList[i] + '\n'
+        keyboard.add(answerList[i])
+
+    reply = bot.send_message(chatId, text, reply_markup=keyboard)
+
+    answer = ''
+    while answer not in answerList and not (answer.isdigit() and 0 < int(answer) <= len(answerList)):
+        if answer:
+            reply = bot.send_message(chatId, 'incorect format')
+
+        if onlyAdmin:
+            msg = yield from waitRelpyFromAdmin(reply, False)
+        else:
+            msg = yield reply, False
+        answer = msg.text
+
+    return int(answer) - 1 if answer.isdigit() else answerList.index(answer)
 
 
 def isPostReply(msg: telebot.types.Message):
