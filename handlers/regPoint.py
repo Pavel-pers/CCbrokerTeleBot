@@ -37,3 +37,26 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
         reply, stopReg = next(regGenerator)
         if not stopReg:
             bot.register_next_step_handler(reply, regPoint, regGenerator)
+
+    def regListenerGen(msg: telebot.types.Message):
+        unlinkPoints = dbFunc.getUnlinkedPoints()
+        answerList = list(map(lambda point: f'city: {point[1]}, name: {point[2]}', unlinkPoints))
+        choice = yield from botTools.askWithKeyboard(msg.chat.id, 'please choice the point', answerList, True)
+        pointId = unlinkPoints[choice][0]
+        dbFunc.linkPoint(pointId, msg.chat.id)
+        reply = bot.send_message(msg.chat.id, 'done!')
+        yield None, True
+
+    def regListener(msg: telebot.TeleBot, gen):
+        botLogger.debug('next link iteration')
+        reply, stopReg = gen.send(msg)
+        if not stopReg:
+            bot.register_next_step_handler(reply, regListener, gen)
+
+    @bot.message_handler(commands=['link'],
+                         func=lambda msg: msg.chat.type == 'supergroup' and botTools.isFromAdmin(msg))
+    def linkPoint(msg: telebot.types.Message):
+        linkGen = regListenerGen(msg)
+        reply, stopIter = next(linkGen)
+        if not stopIter:
+            bot.register_next_step_handler(reply, regListener, linkGen)

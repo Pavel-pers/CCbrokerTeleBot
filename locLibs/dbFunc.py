@@ -49,6 +49,7 @@ if __name__ == "__main__":
         id INTEGER PRIMARY KEY,
         city TEXT NOT NULL,
         name TEXT NOT NULL,
+        link INTEGER DEFAULT NULL,
         workH TEXT DEFAULT NULL 
     );""")
     dbConn.commit()
@@ -207,7 +208,7 @@ mainSqlLoop = SqlLoop(dbLogger)
 
 
 # point requests
-def addNewPoint(groupId, city, name, workHours, loop: SqlLoop = mainSqlLoop):
+def addNewPoint(groupId, city, name, workHours='', loop: SqlLoop = mainSqlLoop):
     # TODO add validator
     def onProc(dbCur: sqlite3.Cursor):
         fetch = dbCur.fetchone()
@@ -238,6 +239,17 @@ def getPointsByCity(city, loop: SqlLoop = mainSqlLoop):
 def getPointById(chatId, loop: SqlLoop = mainSqlLoop):
     command = ('SELECT * FROM Points WHERE id=?', (chatId,))
     task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
+    return task.wait()
+
+
+def linkPoint(chatId, linkId, loop: SqlLoop = mainSqlLoop):
+    comm = ('UPDATE Points SET link = ? WHERE id = ?', (linkId, chatId))
+    loop.addTask(comm, lambda dbCur: dbConn.commit())
+
+
+def getUnlinkedPoints(loop: SqlLoop = mainSqlLoop):
+    comm = ('SELECT * FROM Points WHERE link IS NULL',)
+    task = loop.addTask(comm, lambda dbCur: dbCur.fetchall())
     return task.wait()
 
 
@@ -364,6 +376,6 @@ if __name__ == '__main__' and len(sysArgv) > 1 and sysArgv[1] == '-t':
             continue
         func = funcDict[funcName]
         args = input('args({0}):'.format(','.join(func.__code__.co_varnames[:func.__code__.co_argcount]))).split(',')
-        print(func(*args))
+        print(func(*args) if args != [''] else func())
 
     mainSqlLoop.killLoop(True)
