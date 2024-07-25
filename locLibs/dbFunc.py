@@ -106,13 +106,13 @@ def initRegCityList():
     return cities
 
 
-csvCityLock = threading.Lock()
+csvLock = threading.Lock()
 
 
 def addRegCity(city):
     dbLogger.debug('add ' + city)
     cities = cachedData.regCities  # linked to cach data
-    with csvCityLock:
+    with csvLock:
         if city not in cities:
             cities.append(city)
             with open('data/regCities.csv', 'a', newline='') as f:
@@ -136,7 +136,7 @@ def addRegCity(city):
 def delRegCity(city):  # TODO validate func
     dbLogger.debug('delete ' + city)
     cities = cachedData.regCities
-    with csvCityLock:
+    with csvLock:
         citiesC = []
         with open('data/regCities.csv', 'r') as f:
             reader = csv.reader(f)

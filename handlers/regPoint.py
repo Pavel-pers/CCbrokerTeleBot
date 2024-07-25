@@ -60,3 +60,4 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
         reply, stopIter = next(linkGen)
         if not stopIter:
             bot.register_next_step_handler(reply, regListener, linkGen)
+    # TODO add unlink command
