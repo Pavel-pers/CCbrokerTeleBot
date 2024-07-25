@@ -23,6 +23,7 @@ if __name__ == "__main__":
         clientId INTEGER PRIMARY KEY,
         groupId INTEGER,
         postId INTEGER,
+        linkPostId INTEGER, 
         activeIds TEXT DEFAULT "" NOT NULL,
         birthTime INTEGER
     )""")
@@ -74,9 +75,31 @@ def addBlockUser(userId):
 
 
 # -csv functions
-def getCityList():
+class CachedData:
+    def __init__(self):
+        self.cities = initCityList()
+        self.regCities = initRegCityList()
+
+
+cachedData = CachedData()
+
+
+def initCityList():
     cities = []
     with open('data/cities.csv', 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            cities.append(row[0])
+    return cities
+
+
+def getCityList():
+    return cachedData.cities
+
+
+def initRegCityList():
+    cities = []
+    with open('data/regCities.csv', 'r') as f:
         reader = csv.reader(f)
         for row in reader:
             cities.append(row[0])
@@ -86,20 +109,12 @@ def getCityList():
 csvCityLock = threading.Lock()
 
 
-def getRegCityList():
-    cities = []
-    with open('data/regCities.csv', 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            cities.append(row[0])
-    return cities
-
-
 def addRegCity(city):
     dbLogger.debug('add ' + city)
-    cities = getRegCityList()
+    cities = cachedData.regCities  # linked to cach data
     with csvCityLock:
         if city not in cities:
+            cities.append(city)
             with open('data/regCities.csv', 'a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([city, 1])
@@ -120,6 +135,7 @@ def addRegCity(city):
 
 def delRegCity(city):  # TODO validate func
     dbLogger.debug('delete ' + city)
+    cities = cachedData.regCities
     with csvCityLock:
         citiesC = []
         with open('data/regCities.csv', 'r') as f:
@@ -130,6 +146,8 @@ def delRegCity(city):  # TODO validate func
                     row[1] -= 1
                 if row[1] > 0:
                     citiesC.append(row)
+                else:
+                    cities.remove(row[0])
         with open('data/regCities.csv', 'w', newline='') as f:
             writer = csv.writer(f)
             for row in citiesC:
