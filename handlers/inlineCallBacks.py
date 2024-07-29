@@ -39,7 +39,9 @@ class CbHandlers(Handlers):
                 client, msg = cbData
                 self.bot.set_state(client[0], UserStages.CLIENT_IN_CONVERSATION)
                 self.bot.edit_message_text('message has sent', chatId, msgId)
-                botTools.addNewTask(client, msg)
+                channel, postId = botTools.addNewTask(client, msg)
+                dbFunc.addNewTask(client[0], channel, postId)
+
 
     def postQuit(self, call: telebot.types.CallbackQuery):
         chatId = call.message.chat.id

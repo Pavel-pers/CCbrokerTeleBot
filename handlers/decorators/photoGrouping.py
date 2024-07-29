@@ -31,7 +31,6 @@ def photoCollector():
                     callback = waitingMedia[top.mediaId][1]
                     waitingMedia.pop(top.mediaId)
                     callback(top.media)
-        else:
             delPendQ.put(top)
             time.sleep(0.1)
 
@@ -83,11 +82,15 @@ def startListen(bot: telebot.TeleBot, logger: logging.Logger):
         mediaInfoLock.release()
 
 
-def decorator(handler):
-    def wrapper(msg: telebot.types.Message):
-        if msg.content_type != 'photo' or msg.media_group_id is None:
-            return handler(msg)
-        parseImgGroup(handler, msg)
-        return None
+def getDecorator(msgIndx=0):
+    def decorator(handler):
+        def wrapper(*args):
+            msg: telebot.types.Message = args[msgIndx]
+            if msg.content_type != 'photo' or msg.media_group_id is None:
+                return handler(*args)
+            parseImgGroup(lambda recMsg: handler(*args[:msgIndx], recMsg, *args[msgIndx + 1:]), msg)
+            return None
 
-    return wrapper
+        return wrapper
+
+    return decorator

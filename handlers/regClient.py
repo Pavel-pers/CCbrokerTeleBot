@@ -14,7 +14,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
             client = (msg.text, client[1], client[2])
 
         if client[1] is None:
-            cityList = dbFunc.getRegCityList()
+            cityList = dbFunc.getRegCities()
             cityIndex = yield from botTools.askWithKeyboard(msg.chat.id, 'ask about city', cityList, False)
             clientCity = cityList[cityIndex]
             client = (client[0], clientCity, client[2])

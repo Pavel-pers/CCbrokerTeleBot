@@ -26,7 +26,7 @@ class TaskHandlers(simpleClasses.Handlers):
         curId = msg.message_id
         self.logger.debug(
             f'catched telegram msg: {repr(msg.text)}. {originGr}, {originId}, changing on: {curGr}, {curId}')
-        dbFunc.changeTaskPost(originGr, originId, curGr, curId)
+        dbFunc.changeTaskByPost(originGr, originId, curGr, curId)
         botTools.processComments(originGr, originId, curGr, curId)
 
     # client side
@@ -83,13 +83,13 @@ class TaskHandlers(simpleClasses.Handlers):
         self.logger.debug('end processing msg from client:' + str(msg.chat.id))
 
     # consultant side
-    #   -redir functions
+    #   -redirect functions
     def redirectClientGen(self, msg: telebot.types.Message, client):
         postMsg = msg.reply_to_message
         clientId, clientName, clientCity, clientBind = client
         self.bot.send_message(clientId, 'you gonna redirect')
 
-        cityList = dbFunc.getRegCityList()
+        cityList = dbFunc.getRegCities()
         reply = self.bot.reply_to(postMsg, 'say about /cancel, ask about city\ncities:\n' + '\n'.join(cityList))
 
         pointList = []
@@ -97,7 +97,7 @@ class TaskHandlers(simpleClasses.Handlers):
         while len(pointList) == 0:
             msg = yield reply, False  # waiting for city
 
-            while msg.text != '/cancel' and msg.text not in cityList:
+            while msg.text != '/cancel' and msg.text not in cityList:  # TODO test /cancel
                 reply = self.bot.reply_to(postMsg, 'incorrect city')
                 msg = yield reply, False
 
@@ -138,18 +138,20 @@ class TaskHandlers(simpleClasses.Handlers):
         self.bot.send_message(clientId, 'redirect successfully')
         reply = self.bot.reply_to(postMsg, 'redirect successfully')
 
-        dbFunc.delTask(clientId)
         dbFunc.changeClientBind(clientId, newCity, newPoint)
         newClient = (client[0], client[1], newCity, newPoint)
-        botTools.addNewTask(newClient, msg)
+        newCh, newPostId = botTools.addNewTask(newClient, msg)
+        dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
         yield reply, True
 
+    @photoGrouping.getDecorator(msgIndx=1)
     def redirectClient(self, msg: telebot.types.Message, clientId, gen):
         post = msg.reply_to_message
         reply, stop = gen.send(msg)
         if not stop:
             self.bot.register_for_reply(
-                post, lambda recMsg: cosultantQ.put((self.redirectClient, (recMsg,))), clientId, gen)
+                post,
+                lambda *args: cosultantQ.put((self.redirectClient, args)), clientId, gen)
         else:
             self.bot.delete_state(clientId)
 
@@ -192,7 +194,7 @@ class TaskHandlers(simpleClasses.Handlers):
             if not stop:
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
                 self.bot.register_for_reply(
-                    postMsg, lambda recMsg: cosultantQ.put((self.redirectClient, (recMsg,))), clientId, redirProc)
+                    postMsg, lambda *args: cosultantQ.put((self.redirectClient, args)), clientId, redirProc)
         else:
             dbFunc.addNewActive(clientId, consultant[0])
             cbList = botTools.redirectMsg(msg, 'consultant name: ' + consultant[1])
@@ -221,7 +223,7 @@ def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr
         clientQ.put((handlers.catchChannelMsg, (msg,)))
 
     @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)
-    @photoGrouping.decorator
+    @photoGrouping.getDecorator()
     def clientProducer(msg: telebot.types.Message):
         clientQ.put((handlers.handleClient, (msg,)))
 
@@ -239,6 +241,6 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignor
     # add handlers to telebot
 
     @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
-    @photoGrouping.decorator
+    @photoGrouping.getDecorator()
     def consultantProducer(msg: telebot.types.Message):
         cosultantQ.put((handlers.handleConsultant, (msg,)))

@@ -23,7 +23,6 @@ if __name__ == "__main__":
         clientId INTEGER PRIMARY KEY,
         groupId INTEGER,
         postId INTEGER,
-        linkPostId INTEGER, 
         activeIds TEXT DEFAULT "" NOT NULL,
         birthTime INTEGER
     )""")
@@ -50,7 +49,6 @@ if __name__ == "__main__":
         id INTEGER PRIMARY KEY,
         city TEXT NOT NULL,
         name TEXT NOT NULL,
-        link INTEGER DEFAULT NULL,
         workH TEXT DEFAULT NULL 
     );""")
     dbConn.commit()
@@ -75,38 +73,33 @@ def addBlockUser(userId):
 
 
 # -csv functions
+# -csv functions
 class CachedData:
     def __init__(self):
-        self.cities = initCityList()
-        self.regCities = initRegCityList()
+        # init cities
+        self.cities = []
+        with open('data/cities.csv', 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                self.cities.append(row[0])
+        # init reg cities
+        self.regCities = []
+        with open('data/regCities.csv', 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                self.regCities.append(row[0])
 
 
 cachedData = CachedData()
+csvLock = threading.Lock()
 
 
-def initCityList():
-    cities = []
-    with open('data/cities.csv', 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            cities.append(row[0])
-    return cities
-
-
-def getCityList():
+def getCities():
     return cachedData.cities
 
 
-def initRegCityList():
-    cities = []
-    with open('data/regCities.csv', 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            cities.append(row[0])
-    return cities
-
-
-csvLock = threading.Lock()
+def getRegCities():
+    return cachedData.regCities
 
 
 def addRegCity(city):
@@ -260,17 +253,6 @@ def getPointById(chatId, loop: SqlLoop = mainSqlLoop):
     return task.wait()
 
 
-def linkPoint(chatId, linkId, loop: SqlLoop = mainSqlLoop):
-    comm = ('UPDATE Points SET link = ? WHERE id = ?', (linkId, chatId))
-    loop.addTask(comm, lambda dbCur: dbConn.commit())
-
-
-def getUnlinkedPoints(loop: SqlLoop = mainSqlLoop):
-    comm = ('SELECT * FROM Points WHERE link IS NULL',)
-    task = loop.addTask(comm, lambda dbCur: dbCur.fetchall())
-    return task.wait()
-
-
 # client requests
 def addNewClient(chatId, name, city, bindId, loop: SqlLoop = mainSqlLoop):
     def onProc(dbCur):
@@ -347,7 +329,7 @@ def getTaskByClientId(clientId, loop: SqlLoop = mainSqlLoop):
     return task.wait()
 
 
-def changeTaskPost(prevGroup, prevId, newGroup, newId, loop: SqlLoop = mainSqlLoop):
+def changeTaskByPost(prevGroup, prevId, newGroup, newId, loop: SqlLoop = mainSqlLoop):
     command = ('UPDATE Tasks SET groupId = ?, postId = ? WHERE groupId=? AND postId=?',
                (newGroup, newId, prevGroup, prevId))
 

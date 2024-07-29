@@ -79,6 +79,7 @@ class PendingMessages:
 
 class MsgContent:
     def __init__(self, message: telebot.types.Message):
+        self.id = message.id
         self.content_type = message.content_type
         self.text = message.text
         self.caption = message.caption

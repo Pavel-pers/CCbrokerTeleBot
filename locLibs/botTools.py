@@ -114,7 +114,7 @@ def addNewTask(client, postMsg: telebot.types.Message):
     pendingPostMsgs.newAwait(clientChannel, post.message_id)
     for i in cbList[1:]:
         pendingPostMsgs.add(clientChannel, post.message_id, i)
-    dbFunc.addNewTask(clientId, clientChannel, post.message_id)
+    return clientChannel, post.message_id
 
 
 #   -delete data in DB and ask client
