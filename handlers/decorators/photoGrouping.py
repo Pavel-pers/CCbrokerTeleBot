@@ -22,15 +22,18 @@ class PendingMedia:
     media: list = field(compare=False)
 
 
-def photoCollector():
+def photoCollector(logger: logging.Logger):
     while True:
         top: PendingMedia = delPendQ.get()
         if time.time() > top.deadline:
             with mediaInfoLock:
                 if len(top.media) == top.lstLen:
+                    logger.debug(str(top.mediaId) + '-stopped waiting')
                     callback = waitingMedia[top.mediaId][1]
                     waitingMedia.pop(top.mediaId)
                     callback(top.media)
+                    continue
+        else:
             delPendQ.put(top)
             time.sleep(0.1)
 
@@ -72,10 +75,11 @@ def isWaiting(mediaId, blocking):
 
 
 def startListen(bot: telebot.TeleBot, logger: logging.Logger):
-    threading.Thread(target=photoCollector, daemon=True).start()
+    threading.Thread(target=photoCollector, args=(logger,), daemon=True).start()
 
     @bot.message_handler(content_types=['photo'], func=lambda msg: isWaiting(msg.media_group_id, True))
     def recievePhoto(msg: telebot.types.Message):
+        logger.debug('collecting new img by:' + msg.media_group_id)
         media = waitingMedia[int(msg.media_group_id)][0]
         media.append(telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption))
         delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(msg.media_group_id), media))
