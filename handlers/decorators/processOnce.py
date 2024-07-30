@@ -5,10 +5,6 @@ import threading
 import logging
 from telebot import types
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
-
 
 def _formatKey(key):
     if type(key) is types.Message:
@@ -40,9 +36,7 @@ def getDecorator(keyInd=0, prevKey=previsousKeyGlobal):
             key = args[keyInd]
             if not prevKey.isProcessed(key):
                 prevKey.addKey(key)
-                logger.debug(func.__name__ + ' processed ' + str(_formatKey(key)))
                 return func(*args)
-            logger.debug(func.__name__ + ' skipped ' + str(_formatKey(key)))
             return None
 
         return wrapper
