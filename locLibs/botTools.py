@@ -1,10 +1,11 @@
+from datetime import datetime
 import telebot
 from telebot.types import KeyboardButton
 
 from locLibs import dbFunc
 from locLibs import simpleClasses
 from handlers.inlineCallBacks import addCbData
-from constants import Emoji, Inline
+from constants import Emoji, Inline, FORUM_CHAT
 
 bot: telebot.TeleBot
 
@@ -111,7 +112,7 @@ def addNewTask(client, postMsg: telebot.types.Message):
 
     cbList = redirectMsg(postMsg, header)
     post = cbList[0](clientChannel, None)
-    replyId = post.message_id if type(post) is telebot.types.Message else post[0].message_id # check on media group
+    replyId = post.message_id if type(post) is telebot.types.Message else post[0].message_id  # check on media group
     pendingPostMsgs.newAwait(clientChannel, replyId)
     for i in cbList[1:]:
         pendingPostMsgs.add(clientChannel, replyId, i)
@@ -129,3 +130,33 @@ def endTask(clientId):
     addCbData((clientId, reply.message_id), dbFunc.getActiveIdsById(clientId))
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
+
+
+# forwarding func
+#   -open task, forum
+def startFrorward(clientCity: str, clientName: str, pointName):
+    time = datetime.today().strftime('%m/%d %H:%M"')
+    topic = bot.create_forum_topic(FORUM_CHAT, f'{clientCity} [{time}] from {clientName}',
+                                   icon_custom_emoji_id=Emoji.OPEN_TASK)
+    bot.send_message(FORUM_CHAT, 'client sent message to:' + pointName, message_thread_id=topic.message_thread_id)
+    return topic.message_thread_id
+
+
+def endFrorward(threadId, fromClient: bool):
+    bot.send_message(FORUM_CHAT, 'task closed by ' + ('client' if fromClient else 'consultant'),
+                     message_thread_id=threadId)
+    bot.edit_forum_topic(FORUM_CHAT, threadId, icon_custom_emoji_id=Emoji.CLOSED_TASK)
+
+
+def forwardRate(threadId, rate):
+    bot.send_message(FORUM_CHAT, 'rate:' + str(rate), message_thread_id=threadId)
+    bot.send_message(FORUM_CHAT, 'new rate:' + str(rate))  # TODO make link to topic
+
+
+def forwardMessage(threadId: int, msg: telebot.types.Message):
+    bot.forward_message(FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
+
+
+def forwardRedir(threadId: int, consutant: str, pointCity: str, pointName: str):
+    bot.send_message(FORUM_CHAT, f'{consutant} redirect client\n To city:{pointCity} name:{pointName}',
+                     message_thread_id=threadId)

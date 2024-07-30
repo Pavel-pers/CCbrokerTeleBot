@@ -77,9 +77,15 @@ class PendingMessages:
         self.pendingQ.pop((keyChat, keyReply), None)
 
 
+class ShrinkedChatInfo:
+    def __init__(self, chat: telebot.types.Chat):
+        self.id = chat.id
+
+
 class MsgContent:
     def __init__(self, message: telebot.types.Message):
         self.id = message.id
+        self.chat = ShrinkedChatInfo(message.chat)
         self.content_type = message.content_type
         self.text = message.text
         self.caption = message.caption

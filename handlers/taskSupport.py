@@ -60,16 +60,18 @@ class TaskHandlers(simpleClasses.Handlers):
         reply = self.bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
                                       reply_markup=inlineKeyboard)
         self.bot.register_next_step_handler_by_chat_id(
-            reply.chat.id, lambda recMsg: clientQ.put((self.askToAnswerInline, (recMsg,))), reply.id)  # reg waiting
+            reply.chat.id, lambda recMsg, replyId: clientQ.put((self.askToAnswerInline, (recMsg, replyId))),
+            reply.id)  # reg waiting
 
         shrinkedMsg = simpleClasses.MsgContent(msg)
-        addCbData((reply.chat.id, None), (client, shrinkedMsg))
+        addCbData((reply.chat.id, None), (client, pointName, shrinkedMsg))
 
     #   -client add message to existing task
     def handleClientSide(self, msg: telebot.types.Message, taskInfo):
         client, group, postId = taskInfo[:3]  # skips birth info
         cbList = botTools.redirectMsg(msg, '-client answer-')
         botTools.addComment(group, postId, cbList)
+        botTools.forwardMessage(msg)
 
     #   - entry point
     @threaded.thread_friendly(clientLock, lambda args: args[1].chat.id)
@@ -82,9 +84,10 @@ class TaskHandlers(simpleClasses.Handlers):
             self.handleClientSide(msg, taskInfo)
         self.logger.debug('end processing msg from client:' + str(msg.chat.id))
 
+    # TODO add /close command to client side
     # consultant side
     #   -redirect functions
-    def redirectClientGen(self, msg: telebot.types.Message, client):
+    def redirectClientGen(self, msg: telebot.types.Message, client, consultantName, topicId):
         postMsg = msg.reply_to_message
         clientId, clientName, clientCity, clientBind = client
         self.bot.send_message(clientId, 'you gonna redirect')
@@ -126,7 +129,8 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.send_message(clientId, 'redirection has stoped')
             yield reply, True
 
-        newPoint = next(i[0] for i in pointList if i[2] == msg.text)
+        pointName = msg.text
+        newPoint = next(i[0] for i in pointList if i[2] == pointName)
 
         reply = self.bot.reply_to(postMsg, 'ask about post text')
         msg = yield reply, False  # waiting for post text
@@ -135,7 +139,6 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.send_message(clientId, 'redirection has stoped')
             yield reply, True
 
-        print(len(msg.photo))
         self.bot.send_message(clientId, 'redirect successfully')
         reply = self.bot.reply_to(postMsg, 'redirect successfully')
 
@@ -143,6 +146,7 @@ class TaskHandlers(simpleClasses.Handlers):
         newClient = (client[0], client[1], newCity, newPoint)
         newCh, newPostId = botTools.addNewTask(newClient, msg)
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
+        botTools.forwardRedir(topicId, consultantName, newCity, pointName)
         yield reply, True
 
     def redirectClient(self, msg: telebot.types.Message, clientId, gen):
@@ -181,8 +185,14 @@ class TaskHandlers(simpleClasses.Handlers):
             return
 
         if msg.text == '/close':
+            botTools.forwardMessage(task[3], msg)
+            botTools.endFrorward(task[3], False)
+
             botTools.endTask(clientId)
         elif msg.text == '/ban':
+            botTools.forwardMessage(task[3], msg)
+            botTools.endFrorward(task[3], False)
+
             dbFunc.delTask(clientId)
             dbFunc.delClient(clientId)
             self.bot.send_message(clientId, 'you have banned!')
@@ -192,13 +202,15 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.set_state(clientId, UserStages.CLIENT_REDIR)
 
             client = dbFunc.getClientById(clientId)
-            redirProc = self.redirectClientGen(msg, client)
+            redirProc = self.redirectClientGen(msg, client, consultant[1], task[3])
             reply, stop = next(redirProc)
             if not stop:
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
                 self.bot.register_for_reply(postMsg, self.redirProducer, clientId, redirProc)
         else:
+            botTools.forwardMessage(task[3], msg)
             dbFunc.addNewActive(clientId, consultant[0])
+
             cbList = botTools.redirectMsg(msg, 'consultant name: ' + consultant[1])
             for cb in cbList:
                 cb(clientId, None)

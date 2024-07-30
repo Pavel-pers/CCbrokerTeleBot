@@ -23,6 +23,7 @@ if __name__ == "__main__":
         clientId INTEGER PRIMARY KEY,
         groupId INTEGER,
         postId INTEGER,
+        topicId INTEGER NOT NULL,
         activeIds TEXT DEFAULT "" NOT NULL,
         birthTime INTEGER
     )""")
@@ -316,10 +317,10 @@ def addRateConsultant(consultantId: int, rate: int, loop: SqlLoop = mainSqlLoop)
 
 
 # task requests
-def addNewTask(clientId, groupId, postId, loop: SqlLoop = mainSqlLoop):
+def addNewTask(clientId, groupId, postId, topicId, loop: SqlLoop = mainSqlLoop):
     birthTime = int(time.time() // 60)  # ? save time info in minutes
-    command = ('INSERT INTO Tasks (clientId, groupId, postId, birthTime) VALUES (?, ?, ?, ?)',
-               (clientId, groupId, postId, birthTime))
+    command = ('INSERT INTO Tasks (clientId, groupId, postId, topicId, birthTime) VALUES (?, ?, ?, ?, ?)',
+               (clientId, groupId, postId, topicId, birthTime))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
@@ -347,7 +348,7 @@ def delTask(clientId, loop: SqlLoop = mainSqlLoop):
     task = loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):
+def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):  # TODO validate func
     getComm = ('SELECT activeIds FROM Tasks WHERE clientId = ?', (int(clientId),))
 
     def onProc(dbCur: sqlite3.Cursor):

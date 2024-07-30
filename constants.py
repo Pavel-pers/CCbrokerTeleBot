@@ -18,3 +18,8 @@ class Config:
 
 class Emoji:
     RATE = ['', '1\u20E3', '2\u20E3', '3\u20E3', '4\u20E3', '5\u20E3']
+    OPEN_TASK = '5238156910363950406'
+    CLOSED_TASK = '5237699328843200968'
+
+
+FORUM_CHAT = -1002176286003

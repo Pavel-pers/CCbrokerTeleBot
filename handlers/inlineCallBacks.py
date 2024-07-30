@@ -31,20 +31,26 @@ class CbHandlers(Handlers):
         if call.data == Inline.POST_CANCEL:
             self.bot.edit_message_text('post has canceled', chatId, msgId)
             self.bot.send_message(chatId, 'enter /rename to rename, enter /set_point to replace')
-        else:
+        elif call.data == Inline.POST_CONTINUE:
             if cbData is None:
                 self.bot.send_message(chatId, 'can you repeat your request?')
                 self.bot.edit_message_text(call.message.text, chatId, msgId)
             else:  # client starts the conversation
-                client, msg = cbData
+                client, pointName, msg = cbData
                 self.bot.set_state(client[0], UserStages.CLIENT_IN_CONVERSATION)
                 self.bot.edit_message_text('message has sent', chatId, msgId)
                 channel, postId = botTools.addNewTask(client, msg)
-                dbFunc.addNewTask(client[0], channel, postId)
-
+                topicId = botTools.startFrorward(client[2], client[1], pointName)
+                botTools.forwardMessage(topicId, msg)
+                dbFunc.addNewTask(client[0], channel, postId, topicId)
+        else:
+            raise 'inline callback data error'
 
     def postQuit(self, call: telebot.types.CallbackQuery):
         chatId = call.message.chat.id
+
+        topicId = dbFunc.getTaskByClientId(chatId)[3]
+        botTools.endFrorward(topicId, True)
         self.bot.edit_message_text(call.message.text, chatId, call.message.id)
         botTools.endTask(chatId)
 
