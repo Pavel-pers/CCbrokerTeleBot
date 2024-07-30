@@ -8,7 +8,7 @@ from locLibs import dbFunc
 from locLibs import simpleClasses
 from locLibs import botTools
 from handlers.inlineCallBacks import addCbData
-from handlers.decorators import threaded, photoGrouping
+from handlers.decorators import threaded, photoGrouping, processOnce
 from handlers import threadWorker
 
 clientLock = threaded.InProcHandlers()
@@ -135,6 +135,7 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.send_message(clientId, 'redirection has stoped')
             yield reply, True
 
+        print(len(msg.photo))
         self.bot.send_message(clientId, 'redirect successfully')
         reply = self.bot.reply_to(postMsg, 'redirect successfully')
 
@@ -144,16 +145,18 @@ class TaskHandlers(simpleClasses.Handlers):
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
         yield reply, True
 
-    @photoGrouping.getDecorator(msgIndx=1)
     def redirectClient(self, msg: telebot.types.Message, clientId, gen):
         post = msg.reply_to_message
         reply, stop = gen.send(msg)
         if not stop:
-            self.bot.register_for_reply(
-                post,
-                lambda *args: cosultantQ.put((self.redirectClient, args)), clientId, gen)
+            self.bot.register_for_reply(post, self.redirProducer, clientId, gen)
         else:
             self.bot.delete_state(clientId)
+
+    @processOnce.getDecorator(keyInd=1)
+    @photoGrouping.getDecorator(msgIndx=1)
+    def redirProducer(self, *args):
+        cosultantQ.put((self.redirectClient, args))
 
     #   -entry point
     def handleConsultant(self, msg: telebot.types.Message):
@@ -193,8 +196,7 @@ class TaskHandlers(simpleClasses.Handlers):
             reply, stop = next(redirProc)
             if not stop:
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
-                self.bot.register_for_reply(
-                    postMsg, lambda *args: cosultantQ.put((self.redirectClient, args)), clientId, redirProc)
+                self.bot.register_for_reply(postMsg, self.redirProducer, clientId, redirProc)
         else:
             dbFunc.addNewActive(clientId, consultant[0])
             cbList = botTools.redirectMsg(msg, 'consultant name: ' + consultant[1])
@@ -232,7 +234,6 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignor
     # set up handlers and thread pool
     handlers.set_bot(bot)
     handlers.set_logger(botLogger)
-
     workerPool = [threading.Thread(target=threadWorker.worker, args=(cosultantQ, botLogger, ignoreErrs))
                   for i in range(3)]
     for i in workerPool:
@@ -241,6 +242,7 @@ def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignor
     # add handlers to telebot
 
     @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
+    @processOnce.getDecorator()
     @photoGrouping.getDecorator()
     def consultantProducer(msg: telebot.types.Message):
         cosultantQ.put((handlers.handleConsultant, (msg,)))

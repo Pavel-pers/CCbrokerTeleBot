@@ -111,10 +111,11 @@ def addNewTask(client, postMsg: telebot.types.Message):
 
     cbList = redirectMsg(postMsg, header)
     post = cbList[0](clientChannel, None)
-    pendingPostMsgs.newAwait(clientChannel, post.message_id)
+    replyId = post.message_id if type(post) is telebot.types.Message else post[0].message_id # check on media group
+    pendingPostMsgs.newAwait(clientChannel, replyId)
     for i in cbList[1:]:
-        pendingPostMsgs.add(clientChannel, post.message_id, i)
-    return clientChannel, post.message_id
+        pendingPostMsgs.add(clientChannel, replyId, i)
+    return clientChannel, replyId
 
 
 #   -delete data in DB and ask client

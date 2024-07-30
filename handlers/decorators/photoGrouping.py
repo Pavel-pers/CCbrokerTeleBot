@@ -8,6 +8,8 @@ import queue
 from constants import Config
 from dataclasses import dataclass, field
 from typing import Any
+from handlers.decorators import processOnce
+from functools import wraps
 
 delPendQ = queue.PriorityQueue()
 waitingMedia = dict()
@@ -77,17 +79,30 @@ def isWaiting(mediaId, blocking):
 def startListen(bot: telebot.TeleBot, logger: logging.Logger):
     threading.Thread(target=photoCollector, args=(logger,), daemon=True).start()
 
-    @bot.message_handler(content_types=['photo'], func=lambda msg: isWaiting(msg.media_group_id, True))
+    @bot.message_handler(content_types=['photo'],
+                         func=lambda msg: not processOnce.previsousKeyGlobal.isProcessed(msg)
+                                          and isWaiting(msg.media_group_id, True))
     def recievePhoto(msg: telebot.types.Message):
+        processOnce.previsousKeyGlobal.addKey(msg)
         logger.debug('collecting new img by:' + msg.media_group_id)
         media = waitingMedia[int(msg.media_group_id)][0]
         media.append(telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption))
         delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(msg.media_group_id), media))
         mediaInfoLock.release()
+        return
 
 
 def getDecorator(msgIndx=0):
+    """
+    returns decorator which wrap func processing group of photos
+    !functionns using this decorator must process one message only one time
+    !return code telebot.ContinueHandling may lead to UB
+    :param msgIndx: index of msg parametr
+    :return:
+    """
+
     def decorator(handler):
+        @wraps(handler)
         def wrapper(*args):
             msg: telebot.types.Message = args[msgIndx]
             if msg.content_type != 'photo' or msg.media_group_id is None:
