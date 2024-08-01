@@ -50,7 +50,7 @@ if __name__ == "__main__":
         id INTEGER PRIMARY KEY,
         city TEXT NOT NULL,
         name TEXT NOT NULL,
-        workH TEXT DEFAULT NULL 
+        workH TEXT DEFAULT NULL
     );""")
     dbConn.commit()
 
@@ -216,11 +216,11 @@ class SqlLoop:
             self.logger.info('stopped loop')
 
 
-mainSqlLoop = SqlLoop(dbLogger)
+mainSqlLoop = SqlLoop(dbLogger)  # TODO make on each table different loops
 
 
 # point requests
-def addNewPoint(groupId, city, name, workHours='', loop: SqlLoop = mainSqlLoop):
+def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
     # TODO add validator
     def onProc(dbCur: sqlite3.Cursor):
         fetch = dbCur.fetchone()
