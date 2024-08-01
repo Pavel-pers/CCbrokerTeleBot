@@ -71,7 +71,7 @@ class TaskHandlers(simpleClasses.Handlers):
         client, group, postId = taskInfo[:3]  # skips birth info
         cbList = botTools.redirectMsg(msg, '-client answer-')
         botTools.addComment(group, postId, cbList)
-        botTools.forwardMessage(msg)
+        botTools.forwardMessage(taskInfo[3], msg)
 
     #   - entry point
     @threaded.thread_friendly(clientLock, lambda args: args[1].chat.id)
@@ -88,6 +88,8 @@ class TaskHandlers(simpleClasses.Handlers):
     # consultant side
     #   -redirect functions
     def redirectClientGen(self, msg: telebot.types.Message, client, consultantName, topicId):
+        msg: telebot.types.Message
+
         postMsg = msg.reply_to_message
         clientId, clientName, clientCity, clientBind = client
         self.bot.send_message(clientId, 'you gonna redirect')
@@ -133,7 +135,7 @@ class TaskHandlers(simpleClasses.Handlers):
         newPoint = next(i[0] for i in pointList if i[2] == pointName)
 
         reply = self.bot.reply_to(postMsg, 'ask about post text')
-        msg = yield reply, False  # waiting for post text
+        msg = yield reply, False  # waiting for post msg
 
         if msg.text == '/cancel':
             self.bot.send_message(clientId, 'redirection has stoped')
@@ -146,7 +148,7 @@ class TaskHandlers(simpleClasses.Handlers):
         newClient = (client[0], client[1], newCity, newPoint)
         newCh, newPostId = botTools.addNewTask(newClient, msg)
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
-        botTools.forwardRedir(topicId, consultantName, newCity, pointName)
+        botTools.forwardRedir(topicId, consultantName, newCity, pointName, msg)
         yield reply, True
 
     def redirectClient(self, msg: telebot.types.Message, clientId, gen):

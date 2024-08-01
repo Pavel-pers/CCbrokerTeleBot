@@ -58,11 +58,15 @@ class CbHandlers(Handlers):
         rate = int(call.data.split(':')[1])
         chatId = call.message.chat.id
         messageId = call.message.id
-        activeIds = dataForCb.get((chatId, messageId))
-        if activeIds is None:
+        cbData = dataForCb.get((chatId, messageId))
+        if cbData is None:
             self.logger.warning('client rate deleted post')
             self.bot.edit_message_text('thanks!', chatId, messageId)
             return
+
+        activeIds = cbData[:-1]
+        topicId = cbData[-1]
+        botTools.forwardRate(topicId, rate)
 
         self.bot.edit_message_text('thanks! Rate:' + str(rate), chatId, messageId)
         for consultant in activeIds:

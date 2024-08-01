@@ -46,7 +46,7 @@ def genNewMsg(msg: telebot.types.Message, media):
 
     msg.photo = media[:10]
     for i in range(len(msg.photo)):
-        if msg.photo[i].caption:
+        if msg.photo[i][0].caption:
             msg.photo[0], msg.photo[i] = msg.photo[i], msg.photo[0]
             break
 
@@ -56,7 +56,8 @@ def genNewMsg(msg: telebot.types.Message, media):
 
 def parseImgGroup(handler, firstMsg: telebot.types.Message):
     mediaId = int(firstMsg.media_group_id)
-    media = [telebot.types.InputMediaPhoto(media=firstMsg.photo[0].file_id, caption=firstMsg.text or firstMsg.caption)]
+    media = [(telebot.types.InputMediaPhoto(media=firstMsg.photo[0].file_id, caption=firstMsg.text or firstMsg.caption),
+              firstMsg.id)]
     with mediaInfoLock:
         waitingMedia[mediaId] = (media, lambda recMedia: handler(genNewMsg(msg=firstMsg, media=recMedia)))
         delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(mediaId), media))
@@ -86,7 +87,8 @@ def startListen(bot: telebot.TeleBot, logger: logging.Logger):
         processOnce.previsousKeyGlobal.addKey(msg)
         logger.debug('collecting new img by:' + msg.media_group_id)
         media = waitingMedia[int(msg.media_group_id)][0]
-        media.append(telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption))
+        media.append(
+            (telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption), msg.id))
         delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(msg.media_group_id), media))
         mediaInfoLock.release()
         return

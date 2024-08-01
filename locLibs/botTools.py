@@ -44,8 +44,9 @@ def redirectMsg(msg: telebot.types.Message, header):
         return (lambda ch, repl: bot.send_message(ch, header + '\nsent a sticker', reply_to_message_id=repl),
                 lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
     if msg.content_type == 'media_group':
-        msg.photo[0].caption = header + '\n' + (msg.photo[0].caption or '')
-        return (lambda ch, repl: bot.send_media_group(ch, msg.photo, reply_to_message_id=repl),)
+        photos = list(map(lambda p: p[0], msg.photo))
+        photos[0].caption = header + '\n' + (photos[0].caption or '')
+        return (lambda ch, repl: bot.send_media_group(ch, photos, reply_to_message_id=repl),)
 
 
 def isFromAdmin(msg: telebot.types.Message):
@@ -127,7 +128,10 @@ def endTask(clientId):
         inline.add(telebot.types.InlineKeyboardButton(Emoji.RATE[i], callback_data=Inline.RATE_PREF + str(i)))
 
     reply = bot.send_message(clientId, 'the end of conversation, please rate', reply_markup=inline)
-    addCbData((clientId, reply.message_id), dbFunc.getActiveIdsById(clientId))
+    task = dbFunc.getTaskByClientId(clientId)
+    activeIds = task[4].split(';')[:-1]
+    topicId = task[3]
+    addCbData((clientId, reply.message_id), activeIds + [topicId])
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
 
@@ -154,9 +158,14 @@ def forwardRate(threadId, rate):
 
 
 def forwardMessage(threadId: int, msg: telebot.types.Message):
-    bot.forward_message(FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
+    if msg.content_type == 'media_group':
+        msgIds = list(map(lambda p: p[1], msg.photo))
+        bot.forward_messages(FORUM_CHAT, msg.chat.id, msgIds, message_thread_id=threadId)
+    else:
+        bot.forward_message(FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
 
 
-def forwardRedir(threadId: int, consutant: str, pointCity: str, pointName: str):
-    bot.send_message(FORUM_CHAT, f'{consutant} redirect client\n To city:{pointCity} name:{pointName}',
+def forwardRedir(threadId: int, consutant: str, pointCity: str, pointName: str, postMsg):  # TODO send new post text
+    bot.send_message(FORUM_CHAT, f'{consutant} redirect client\n To city:{pointCity} name:{pointName}\nnew msg:',
                      message_thread_id=threadId)
+    forwardMessage(threadId, postMsg)
