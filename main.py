@@ -1,9 +1,7 @@
 import telebot
 import logging
 from tokens import bot as botTokens
-from locLibs import simpleClasses
-from locLibs import dbFunc
-import locLibs.botTools
+import locLibs
 import handlers
 
 # setup logger
@@ -14,9 +12,9 @@ handler.setFormatter(formatter)
 botLogger.addHandler(handler)
 botLogger.setLevel(logging.DEBUG)
 
-bot = simpleClasses.TeleBotBanF(botTokens.token, threaded=False, block_list=dbFunc.getBlockList())
-locLibs.botTools.bot = bot
-dbFunc.mainSqlLoop.start()
+bot = locLibs.simpleClasses.TeleBotBanF(botTokens.token, threaded=False, block_list=locLibs.dbFunc.getBlockList())
+locLibs.init(bot, botLogger)
+locLibs.dbFunc.mainSqlLoop.start()
 
 handlers.startListen(bot, botLogger)
 # TODO realise delete group handler
@@ -24,5 +22,5 @@ handlers.startListen(bot, botLogger)
 try:
     bot.polling(none_stop=True)
 except Exception as err:
-    dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown the loop
+    locLibs.dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown the loop
     raise err

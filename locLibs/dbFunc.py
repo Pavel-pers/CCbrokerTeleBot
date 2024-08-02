@@ -82,7 +82,7 @@ class CachedData:
         with open('data/cities.csv', 'r') as f:
             reader = csv.reader(f)
             for row in reader:
-                self.cities.append(row[0])
+                self.cities.append((row[0], row[1]))
         # init reg cities
         self.regCities = []
         with open('data/regCities.csv', 'r') as f:

@@ -7,9 +7,11 @@ from constants import *
 from locLibs import dbFunc
 from locLibs import simpleClasses
 from locLibs import botTools
+from locLibs import simpleTools
 from handlers.inlineCallBacks import addCbData
 from handlers.decorators import threaded, photoGrouping, processOnce
 from handlers import threadWorker
+import time
 
 clientLock = threaded.InProcHandlers()
 
@@ -55,10 +57,16 @@ class TaskHandlers(simpleClasses.Handlers):
         cancelBtn = telebot.types.InlineKeyboardButton('cancel', callback_data=Inline.POST_CANCEL)
         continueBtn = telebot.types.InlineKeyboardButton('continue', callback_data=Inline.POST_CONTINUE)
         inlineKeyboard.add(cancelBtn, continueBtn)
-        pointName = dbFunc.getPointById(client[3])[2]
+        pointInfo = dbFunc.getPointById(client[3])
+        pointName = pointInfo[2]
+        workH = pointInfo[3]
 
-        reply = self.bot.send_message(msg.chat.id, f'your city = {client[2]}, point = {pointName}, continue?',
-                                      reply_markup=inlineKeyboard)
+        confirmText = f'your city = {client[2]}, point = {pointName}, continue?'
+        dist = simpleTools.distToTimeSgm(workH)
+        if dist > 10:
+            confirmText += "\npoint isn't working now, wait {0}h.{1}m.".format(dist // 60, dist % 60)
+        reply = self.bot.send_message(msg.chat.id, confirmText, reply_markup=inlineKeyboard)
+
         self.bot.register_next_step_handler_by_chat_id(
             reply.chat.id, lambda recMsg, replyId: clientQ.put((self.askToAnswerInline, (recMsg, replyId))),
             reply.id)  # reg waiting
