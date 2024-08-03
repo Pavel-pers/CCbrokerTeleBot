@@ -25,7 +25,7 @@ if __name__ == "__main__":
         postId INTEGER,
         topicId INTEGER NOT NULL,
         activeIds TEXT DEFAULT "" NOT NULL,
-        birthTime INTEGER
+        lastActiveTime INTEGER
     )""")
     dbConn.commit()
 
@@ -318,8 +318,8 @@ def addRateConsultant(consultantId: int, rate: int, loop: SqlLoop = mainSqlLoop)
 
 # task requests
 def addNewTask(clientId, groupId, postId, topicId, loop: SqlLoop = mainSqlLoop):
-    birthTime = int(time.time() // 60)  # ? save time info in minutes
-    command = ('INSERT INTO Tasks (clientId, groupId, postId, topicId, birthTime) VALUES (?, ?, ?, ?, ?)',
+    birthTime = int(time.time())  # ? save time info in minutes
+    command = ('INSERT INTO Tasks (clientId, groupId, postId, topicId, lastActiveTime) VALUES (?, ?, ?, ?, ?)',
                (clientId, groupId, postId, topicId, birthTime))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 
@@ -359,6 +359,12 @@ def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):  # TODO valid
             loop.addTask(addComm, lambda dbCur1: dbConn.commit())
 
     loop.addTask(getComm, onProc)
+
+
+def updActiveTime(clientId, loop: SqlLoop = mainSqlLoop):
+    curTime = int(time.time())
+    loop.addTask(('UPDATE Tasks SET lastActiveTime = ? WHERE clientId = ?', (curTime, clientId)),
+                 lambda dbCur: dbConn.commit())
 
 
 def getActiveIdsById(clientId, loop: SqlLoop = mainSqlLoop):

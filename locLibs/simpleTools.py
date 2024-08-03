@@ -15,11 +15,11 @@ def timezoneConv(strTime: str, timezone: str):
     return h + ':' + m
 
 
-def distToTimeSgm(timeSegmentGmt: str):
+def distToTimeSgm(timeSegmentGmt: str, timeS=None):
     start, finish = timeSegmentGmt.split('-')
     start = tuple(map(int, start.split(':')))
     finish = tuple(map(int, finish.split(':')))
-    tm = time.gmtime()
+    tm = time.gmtime(timeS)
     curTime = (tm.tm_hour, tm.tm_min)
     if start > finish:
         if finish >= curTime or start <= curTime:

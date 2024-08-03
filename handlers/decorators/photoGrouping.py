@@ -60,7 +60,7 @@ def parseImgGroup(handler, firstMsg: telebot.types.Message):
               firstMsg.id)]
     with mediaInfoLock:
         waitingMedia[mediaId] = (media, lambda recMedia: handler(genNewMsg(msg=firstMsg, media=recMedia)))
-        delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(mediaId), media))
+        delPendQ.put(PendingMedia(time.time() + Config.NEXT_PHOTO_WAIT_TIME, len(media), int(mediaId), media))
 
 
 def isWaiting(mediaId, blocking):
@@ -89,7 +89,7 @@ def startListen(bot: telebot.TeleBot, logger: logging.Logger):
         media = waitingMedia[int(msg.media_group_id)][0]
         media.append(
             (telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption), msg.id))
-        delPendQ.put(PendingMedia(time.time() + 0.5, len(media), int(msg.media_group_id), media))
+        delPendQ.put(PendingMedia(time.time() + Config.NEXT_PHOTO_WAIT_TIME, len(media), int(msg.media_group_id), media))
         mediaInfoLock.release()
         return
 
