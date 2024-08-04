@@ -375,7 +375,7 @@ def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):  # TODO valid
 
     def onProc(dbCur: sqlite3.Cursor):
         activeIds = dbCur.fetchone()[0]
-        if activeId not in activeIds.split(';'):
+        if str(activeId) not in activeIds.split(';'):
             addComm = (
                 'UPDATE Tasks SET activeIds = ? WHERE  clientId = ?', (activeIds + str(activeId) + ';', int(clientId)))
             loop.addTask(addComm, lambda dbCur1: dbConn.commit())
