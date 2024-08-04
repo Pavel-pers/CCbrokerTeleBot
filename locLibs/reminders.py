@@ -54,7 +54,7 @@ class ReminderList:
 
 
 def worker(bot: telebot.TeleBot, logger: logging.Logger, reminders: dict):
-    # !time.sleep(10 * 60)  # restore time after crash(for process messages, recieved on crash time) debug
+    time.sleep(10 * 60)  # restore time after crash(for process messages, recieved on crash time) debug
     while True:
         time.sleep(Config.REMINDER_DELAY)
         curTime = time.time()
