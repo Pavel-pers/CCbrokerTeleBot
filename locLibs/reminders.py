@@ -2,24 +2,19 @@ import telebot
 import logging
 import threading
 import time
+
+import constants
 from locLibs import dbFunc, simpleTools
 from constants import Config
 
 
 class ReminderList:
-    def __init__(self, workH, backup):
+    def __init__(self, workH):
         self.workH = workH
         self.cur_stage = dict()
         self.future_stage = dict()
 
-        curTime = int(time.time())
-        for cliendId, start, clientName in backup:
-            if start + Config.REMINDER_DELAY < curTime:
-                self.cur_stage[cliendId] = (start, clientName)
-            else:
-                self.future_stage[cliendId] = (start, clientName)
-
-    def mark(self, clientId):
+    def mark(self, clientId):  # returns True if task in current stage
         inCurStage = self.cur_stage.pop(clientId, None)
         if inCurStage is not None:
             self.future_stage[clientId] = (int(time.time()), inCurStage[1])
@@ -28,8 +23,15 @@ class ReminderList:
             self.future_stage[clientId] = (int(time.time()), userName)
         return inCurStage is not None
 
-    def addTask(self, clientId, clientName):
-        self.future_stage[clientId] = (time.time(), clientName)
+    def addTask(self, clientId, clientName, mdfTime=None):
+        curTime = int(time.time())
+        if mdfTime is not None:
+            if Config.REMINDER_DELAY + mdfTime < curTime:
+                self.cur_stage[clientId] = (mdfTime, clientName)
+            else:
+                self.future_stage[clientId] = (mdfTime, clientName)
+        else:
+            self.future_stage[clientId] = (curTime, clientName)
 
     def delTask(self, clientId):
         curStage = self.cur_stage.pop(clientId, None)
@@ -42,7 +44,7 @@ class ReminderList:
             self.cur_stage = self.future_stage
         else:
             self.cur_stage.update(self.future_stage)
-        self.future_stage = set()
+        self.future_stage = dict()
 
     def genText(self, curTime) -> str:
         reminderText = ''
@@ -51,48 +53,67 @@ class ReminderList:
         return reminderText
 
 
-def worker(bot: telebot.TeleBot, reminders: dict):
-    time.sleep(10 * 60)  # restore time after crash(for process messages, recieved on crash time)
+def worker(bot: telebot.TeleBot, logger: logging.Logger, reminders: dict):
+    # !time.sleep(10 * 60)  # restore time after crash(for process messages, recieved on crash time) debug
     while True:
         time.sleep(Config.REMINDER_DELAY)
         curTime = time.time()
+        logger.debug('--new reminder iter--')
+        with remindersLock:
+            for pointInfo in reminders.items():
+                chatId, reminder = pointInfo
+                if not (reminder.cur_stage or reminder.future_stage):
+                    continue
+                logger.debug('processing:' + str(chatId))
+                if simpleTools.distToTimeSgm(reminder.workH) == 0:
+                    logger.debug('check stages:' + str(chatId))
+                    logger.debug('about stages ' + str(chatId) + 'cur:' + str(reminder.cur_stage) + 'fut:' + str(
+                        reminder.future_stage))
+                    remText = reminder.genText(curTime)
+                    if remText:
+                        bot.send_message(chatId, 'please, answer clients bellow' + remText)
+                logger.debug('finish with:' + str(chatId))
+                reminder.nextStage()
 
-        for pointInfo in reminders.values():
-            chatId, reminder = pointInfo
-            if simpleTools.distToTimeSgm(reminder.workH) == 0:
-                remText = reminder.genText(curTime)
-                if remText:
-                    bot.send_message(chatId, 'please, answer clients bellow' + remText)
-            reminder.nextStage()
 
-
+remindersLock = threading.Lock()
 remindersDict = dict()
 
 
-def regReminder(pointId, clientId, clientName):
-    remindersDict[pointId].addTask(clientId, clientName)
+def addPoint(pointId, pointHours):
+    with remindersLock:
+        remindersDict[pointId] = ReminderList(pointHours)
+
+
+def regReminder(pointId, clientId, clientName, mdfTime=None):
+    with remindersLock:
+        print('add reminder', pointId, clientId)
+        remindersDict[pointId].addTask(clientId, clientName, mdfTime)
 
 
 def delReminder(pointId, clientId):
-    remindersDict[pointId].delTask(clientId)
+    with remindersLock:
+        remindersDict[pointId].delTask(clientId)
 
 
 def markReminder(pointId, clientId):
-    if remindersDict[pointId].mark(pointId, clientId):
-        dbFunc.updActiveTime(clientId)
+    with remindersLock:
+        if remindersDict[pointId].mark(clientId):
+            dbFunc.updActiveTime(clientId)
 
 
-def startReminders(bot: telebot.TeleBot, taskList):
-    row_info = dict()
-    for row in taskList:
-        pointId, clientId, activeTime = row[1], row[0], row[5]
-        clientName = dbFunc.getClientById(clientId)
-        if pointId not in row_info:
-            workH = dbFunc.getPointById(pointId)[4]
-            row_info[pointId] = (workH, [])
-        row_info[pointId][1].append((pointId, clientId, activeTime))
+def initReminderFromRow(row):
+    userName = dbFunc.getClientById(row[0])[1]
+    regReminder(row[1], row[0], userName, row[5])
 
-    for point, workH, tasks in row_info.values():
-        remindersDict[point] = ReminderList(workH, tasks)
 
-    workerTh = threading.Thread(target=worker, args=(bot, remindersDict), daemon=True)
+def startReminders(bot: telebot.TeleBot, logger: logging.Logger):
+    dbFunc.initTable([lambda row: addPoint(row[0], row[4])], 'Points')
+    taskList = dbFunc.getAllData('Tasks', ('groupId', 'clientId', 'lastActiveTime'))
+    for pointId, clientId, startTime in taskList:
+        clientName = dbFunc.getClientById(clientId)[1]
+        regReminder(pointId, clientId, clientName, startTime)
+
+    workerTh = threading.Thread(target=worker, args=(bot, logger, remindersDict), daemon=True)
+    workerTh.start()
+    return workerTh

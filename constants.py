@@ -14,7 +14,7 @@ class Config:
     ALLOWED_CONTENT = ['text', 'photo', 'document', 'audio', 'video', 'voice', 'video_note', 'sticker']
     INLINE_DELAY = 60 * 30
     NEXT_PHOTO_WAIT_TIME = 0.5
-    REMINDER_DELAY = 60 * 60
+    REMINDER_DELAY = 5  # ! debug
 
 
 class Emoji:

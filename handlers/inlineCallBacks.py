@@ -7,6 +7,7 @@ import queue
 from constants import Inline, Config, UserStages
 from locLibs import dbFunc
 from locLibs import botTools
+from locLibs import reminders
 from locLibs.simpleClasses import DataForInlineCB, Handlers
 from handlers import threadWorker
 
@@ -43,6 +44,7 @@ class CbHandlers(Handlers):
                 topicId = botTools.startFrorward(client[2], client[1], pointName)
                 botTools.forwardMessage(topicId, msg)
                 dbFunc.addNewTask(client[0], channel, postId, topicId)
+                reminders.regReminder(client[3], client[0], client[1])
         else:
             raise 'inline callback data error'
 

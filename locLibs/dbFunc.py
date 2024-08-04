@@ -219,6 +219,28 @@ class SqlLoop:
 mainSqlLoop = SqlLoop(dbLogger)  # TODO make on each table different loops
 
 
+# general sql requests
+def initTable(funcs: list, tableName: str, loop: SqlLoop = mainSqlLoop):
+    command = ('SELECT * FROM ' + tableName,)
+
+    def processRows(dbCur: sqlite3.Cursor):
+        for row in dbCur:
+            for f in funcs:
+                f(row)
+
+    loop.addTask(command, processRows)
+
+
+def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mainSqlLoop):
+    if reqRows is None:
+        reqRows = '*'
+    else:
+        reqRows = ', '.join(reqRows)
+
+    command = (f'SELECT {reqRows} FROM ' + tableName,)
+    return loop.addTask(command, lambda dbCur: dbCur.fetchall()).wait()
+
+
 # point requests
 def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
     # TODO add validator

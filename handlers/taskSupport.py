@@ -8,6 +8,7 @@ from locLibs import dbFunc
 from locLibs import simpleClasses
 from locLibs import botTools
 from locLibs import simpleTools
+from locLibs import reminders
 from handlers.inlineCallBacks import addCbData
 from handlers.decorators import threaded, photoGrouping, processOnce
 from handlers import threadWorker
@@ -59,7 +60,7 @@ class TaskHandlers(simpleClasses.Handlers):
         inlineKeyboard.add(cancelBtn, continueBtn)
         pointInfo = dbFunc.getPointById(client[3])
         pointName = pointInfo[2]
-        workH = pointInfo[3]
+        workH = pointInfo[4]
 
         confirmText = f'your city = {client[2]}, point = {pointName}, continue?'
         dist = simpleTools.distToTimeSgm(workH)
@@ -157,6 +158,7 @@ class TaskHandlers(simpleClasses.Handlers):
         newCh, newPostId = botTools.addNewTask(newClient, msg)
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
         botTools.forwardRedir(topicId, consultantName, newCity, pointName, msg)
+        reminders.regReminder(newPoint, clientId, clientName)
         yield reply, True
 
     def redirectClient(self, msg: telebot.types.Message, clientId, gen):
@@ -195,11 +197,14 @@ class TaskHandlers(simpleClasses.Handlers):
             return
 
         if msg.text == '/close':
+            reminders.delReminder(replyChat, clientId)
             botTools.forwardMessage(task[3], msg)
             botTools.endFrorward(task[3], False)
 
             botTools.endTask(clientId)
         elif msg.text == '/ban':
+            reminders.delReminder(replyChat, clientId)
+
             botTools.forwardMessage(task[3], msg)
             botTools.endFrorward(task[3], False)
 
@@ -209,6 +214,8 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.reply_to(postMsg, 'banned')
             botTools.blockUser(clientId)
         elif msg.text == '/redirect':
+            reminders.delReminder(replyChat, clientId)
+
             self.bot.set_state(clientId, UserStages.CLIENT_REDIR)
 
             client = dbFunc.getClientById(clientId)
@@ -218,6 +225,7 @@ class TaskHandlers(simpleClasses.Handlers):
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
                 self.bot.register_for_reply(postMsg, self.redirProducer, clientId, redirProc)
         else:
+            reminders.markReminder(replyChat, clientId)
             botTools.forwardMessage(task[3], msg)
             dbFunc.addNewActive(clientId, consultant[0])
 
