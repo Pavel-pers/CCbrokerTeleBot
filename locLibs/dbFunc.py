@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import queue
 import logging
-
+from locLibs import reminders
 import time
 from sys import argv as sysArgv
 
@@ -243,16 +243,17 @@ def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mai
 
 # point requests
 def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
-    # TODO add validator
     def onProc(dbCur: sqlite3.Cursor):
         fetch = dbCur.fetchone()
         if fetch is None:
             addRegCity(city)
+            reminders.addPoint(groupId, workHours)
             addTask = (
                 'INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)', (groupId, city, name, workHours))
             loop.addTask(addTask, lambda dbCur1: dbConn.commit())
         else:
             prevCity = fetch[1]
+            reminders.changePoint(groupId, workHours)
             delRegCity(prevCity)
             addRegCity(city)
             updTask = (

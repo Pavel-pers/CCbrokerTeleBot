@@ -60,11 +60,11 @@ class TaskHandlers(simpleClasses.Handlers):
         inlineKeyboard.add(cancelBtn, continueBtn)
         pointInfo = dbFunc.getPointById(client[3])
         pointName = pointInfo[2]
-        workH = pointInfo[4]
+        workH = pointInfo[3]
 
         confirmText = f'your city = {client[2]}, point = {pointName}, continue?'
         dist = simpleTools.distToTimeSgm(workH)
-        if dist > 10:
+        if dist > 15:
             confirmText += "\npoint isn't working now, wait {0}h.{1}m.".format(dist // 60, dist % 60)
         reply = self.bot.send_message(msg.chat.id, confirmText, reply_markup=inlineKeyboard)
 

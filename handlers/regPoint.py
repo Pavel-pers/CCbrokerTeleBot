@@ -32,6 +32,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
         pointName = msg.text
 
         botLogger.debug('saving point:' + str((msg.chat.id, pointName, pointCity)))
+
         dbFunc.addNewPoint(msg.chat.id, pointCity, pointName, workH)
         reply = bot.send_message(msg.chat.id, 'data saved')
         yield reply, True
