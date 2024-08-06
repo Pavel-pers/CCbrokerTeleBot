@@ -106,7 +106,7 @@ def markReminder(pointId, clientId):
 
 
 def startReminders(bot: telebot.TeleBot, logger: logging.Logger):
-    dbFunc.initTable([lambda row: addPoint(row[0], row[3])], 'Points')
+    dbFunc.iterateTable([lambda row: addPoint(row[0], row[3])], 'Points').wait()
     taskList = dbFunc.getAllData('Tasks', ('groupId', 'clientId', 'lastActiveTime'))
     for pointId, clientId, startTime in taskList:
         clientName = dbFunc.getClientById(clientId)[1]

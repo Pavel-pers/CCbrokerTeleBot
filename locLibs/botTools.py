@@ -1,13 +1,18 @@
 from datetime import datetime
 import telebot
 from telebot.types import KeyboardButton
+import time
 
 from locLibs import dbFunc
 from locLibs import simpleClasses
 from handlers.inlineCallBacks import addCbData
-from constants import Emoji, Inline, FORUM_CHAT
+from constants import Emoji, Inline, FORUM_CHAT, Config, UserStages
 
 bot: telebot.TeleBot
+
+
+def backupStages():  # add stage to users in conversation
+    dbFunc.iterateTable([lambda row: bot.set_state(row[0], UserStages.CLIENT_IN_CONVERSATION)], 'Tasks').wait()
 
 
 def blockUser(userId):
@@ -92,6 +97,7 @@ def isPostReply(msg: telebot.types.Message):
 pendingPostMsgs = simpleClasses.PendingMessages()  # messages which waiting telegramm repeat
 
 
+#   -comments func
 def processComments(oldChat, oldReply, newChat, newReply):
     pendingPostMsgs.processCB(oldChat, oldReply, newChat, newReply)
 
@@ -122,16 +128,24 @@ def addNewTask(client, postMsg: telebot.types.Message):
 
 #   -delete data in DB and ask client
 def endTask(clientId):
-    # TODO ask for rate
     inline = telebot.types.InlineKeyboardMarkup(row_width=5)
     for i in range(1, 6):
         inline.add(telebot.types.InlineKeyboardButton(Emoji.RATE[i], callback_data=Inline.RATE_PREF + str(i)))
 
     reply = bot.send_message(clientId, 'the end of conversation, please rate', reply_markup=inline)
+
     task = dbFunc.getTaskByClientId(clientId)
+    groupId = task[1]
+    postId = task[2]
+    birthTime = task[6]
+    bonus = False
+    if int(time.time()) - birthTime < Config.BONUS_TIME:
+        bot.send_message(groupId, 'finish quicky, youll recieve bonus, on client rate', reply_to_message_id=postId)
+        bonus = True
+
     activeIds = task[4].split(';')[:-1]
     topicId = task[3]
-    addCbData((clientId, reply.message_id), activeIds + [topicId])
+    addCbData((clientId, reply.message_id), (activeIds, topicId, bonus))
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
 

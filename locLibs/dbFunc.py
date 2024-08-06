@@ -16,7 +16,7 @@ dbLogger.addHandler(handler)
 dbLogger.setLevel(logging.DEBUG)
 
 dbConn = sqlite3.connect('data/database.db', check_same_thread=False)
-if __name__ == "__main__":
+if __name__ == "__main__":  # TODO save time data in minutes
     print('preparing tables')
     dbCurr = dbConn.cursor()
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Tasks(
@@ -25,7 +25,8 @@ if __name__ == "__main__":
         postId INTEGER,
         topicId INTEGER NOT NULL,
         activeIds TEXT DEFAULT "" NOT NULL,
-        lastActiveTime INTEGER
+        lastActiveTime INTEGER,
+        birthTime INTEGER
     )""")
     dbConn.commit()
 
@@ -42,7 +43,8 @@ if __name__ == "__main__":
         name TEXT NOT NULL,
         ansCnt INTEGER DEFAULT 0,
         rateSm INTEGER DEFAULT 0,
-        bonus INTEGER DEFAULT 0
+        bonus INTEGER DEFAULT 0,
+        bind INTEGER NOT NULL
     );""")
     dbConn.commit()
 
@@ -127,7 +129,7 @@ def addRegCity(city):
                     writer.writerow(row)
 
 
-def delRegCity(city):  # TODO validate func
+def delRegCity(city):
     dbLogger.debug('delete ' + city)
     cities = cachedData.regCities
     with csvLock:
@@ -220,7 +222,7 @@ mainSqlLoop = SqlLoop(dbLogger)  # TODO make on each table different loops
 
 
 # general sql requests
-def initTable(funcs: list, tableName: str, loop: SqlLoop = mainSqlLoop):
+def iterateTable(funcs: list, tableName: str, loop: SqlLoop = mainSqlLoop):
     command = ('SELECT * FROM ' + tableName,)
 
     def processRows(dbCur: sqlite3.Cursor):
@@ -228,7 +230,7 @@ def initTable(funcs: list, tableName: str, loop: SqlLoop = mainSqlLoop):
             for f in funcs:
                 f(row)
 
-    loop.addTask(command, processRows)
+    return loop.addTask(command, processRows)
 
 
 def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mainSqlLoop):
@@ -308,13 +310,23 @@ def delClient(clientId, loop: SqlLoop = mainSqlLoop):
 
 
 # consultant requests
-def addNewConsultant(userId, name, loop: SqlLoop = mainSqlLoop):
+def clearConsultantProgress(loop: SqlLoop = mainSqlLoop):
+    command = ('UPDATE Consultants SET ansCnt = 0, rateSm = 0, bonus = 0',)
+    loop.addTask(command, lambda dbCur: dbConn.commit())
+
+
+def getConsultants(minAnswerCount=3, loop: SqlLoop = mainSqlLoop):
+    command = ('SELECT * FROM Consultants WHERE ansCnt >= ?', (minAnswerCount,))
+    return loop.addTask(command, lambda cur: cur.fetchall()).wait()
+
+
+def addNewConsultant(userId: int, name: str, bind: int, loop: SqlLoop = mainSqlLoop):
     def onProc(dbCur):
         if dbCur.fetchone() is None:  # create new Consultant
-            addTask = ('INSERT INTO Consultants (id, name) VALUES (?, ?)', (userId, name))
+            addTask = ('INSERT INTO Consultants (id, name, bind) VALUES (?, ?, ?)', (userId, name, bind))
             loop.addTask(addTask, lambda dbCur1: dbConn.commit())
         else:
-            updTask = ('UPDATE Consultants SET name = ? WHERE id = ?', (name, userId))
+            updTask = ('UPDATE Consultants SET name = ?, bind = ? WHERE id = ?', (name, bind, userId))
             loop.addTask(updTask, lambda dbCur1: dbConn.commit())
 
     checkTask = ('SELECT id FROM Consultants WHERE id = ?', (userId,))
@@ -327,13 +339,15 @@ def getConsultantById(userId, loop: SqlLoop = mainSqlLoop):
     return task.wait()
 
 
-def addRateConsultant(consultantId: int, rate: int, loop: SqlLoop = mainSqlLoop):
+def addRateConsultant(consultantId: int, rate: int, addBonus: bool, loop: SqlLoop = mainSqlLoop):
     rate = int(rate)
-    getComm = ('SELECT ansCnt,rateSm FROM Consultants WHERE id=?', (consultantId,))
+    getComm = ('SELECT ansCnt,rateSm,bonus FROM Consultants WHERE id=?', (consultantId,))
 
     def onProc(dbCur: sqlite3.Cursor):
-        ansCnt, rateSm = dbCur.fetchone()
-        updComm = ('UPDATE Consultants SET ansCnt=?, rateSm=? WHERE id=?', (ansCnt + 1, rateSm + rate, consultantId))
+        ansCnt, rateSm, bonus = dbCur.fetchone()
+        bonus += addBonus
+        updComm = ('UPDATE Consultants SET ansCnt=?, rateSm=?, bonus=? WHERE id=?',
+                   (ansCnt + 1, rateSm + rate, bonus, consultantId))
         loop.addTask(updComm, lambda dbCur1: dbConn.commit())
 
     loop.addTask(getComm, onProc)
@@ -342,8 +356,9 @@ def addRateConsultant(consultantId: int, rate: int, loop: SqlLoop = mainSqlLoop)
 # task requests
 def addNewTask(clientId, groupId, postId, topicId, loop: SqlLoop = mainSqlLoop):
     birthTime = int(time.time())  # ? save time info in minutes
-    command = ('INSERT INTO Tasks (clientId, groupId, postId, topicId, lastActiveTime) VALUES (?, ?, ?, ?, ?)',
-               (clientId, groupId, postId, topicId, birthTime))
+    command = (
+        'INSERT INTO Tasks (clientId, groupId, postId, topicId, lastActiveTime, birthTime) VALUES (?, ?, ?, ?, ?, ?)',
+        (clientId, groupId, postId, topicId, birthTime, birthTime))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
@@ -371,7 +386,7 @@ def delTask(clientId, loop: SqlLoop = mainSqlLoop):
     task = loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):  # TODO validate func
+def addNewActive(clientId, activeId, loop: SqlLoop = mainSqlLoop):
     getComm = ('SELECT activeIds FROM Tasks WHERE clientId = ?', (int(clientId),))
 
     def onProc(dbCur: sqlite3.Cursor):
@@ -405,7 +420,8 @@ if __name__ == '__main__' and len(sysArgv) > 1 and sysArgv[1] == '-t':
         if funcName not in funcDict:
             continue
         func = funcDict[funcName]
-        args = input('args({0}):'.format(','.join(func.__code__.co_varnames[:func.__code__.co_argcount]))).split(',')
+        argsNames = func.__code__.co_varnames[:func.__code__.co_argcount]
+        args = input('args({0}):'.format(','.join(argsNames))).split(',')
         print(func(*args) if args != [''] else func())
 
     mainSqlLoop.killLoop(True)

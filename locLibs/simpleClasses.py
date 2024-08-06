@@ -14,6 +14,8 @@ class TeleBotBanF(telebot.TeleBot):
             self.blockUsers = set()
         super().__init__(*args, **kwargs)
 
+
+
     def get_updates(self, *args, **kwargs):
         jsonEvents = telebot.apihelper.get_updates(self.token, *args, **kwargs)
         filtData = []

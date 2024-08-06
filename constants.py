@@ -15,6 +15,7 @@ class Config:
     INLINE_DELAY = 60 * 30
     NEXT_PHOTO_WAIT_TIME = 0.5
     REMINDER_DELAY = 60 * 60
+    BONUS_TIME = 60 * 90
 
 
 class Emoji:

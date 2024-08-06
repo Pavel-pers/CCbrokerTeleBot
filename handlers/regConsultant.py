@@ -14,4 +14,4 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
         name = name[name.find(' ') + 1:]
         botLogger.debug('set name for user:' + str(msg.from_user.id) + ' on ' + name)
         bot.send_message(msg.chat.id, 'data saved')
-        dbFunc.addNewConsultant(msg.from_user.id, name)
+        dbFunc.addNewConsultant(msg.from_user.id, name, msg.chat.id)

@@ -16,6 +16,7 @@ botLogger.setLevel(logging.DEBUG)
 bot = locLibs.simpleClasses.TeleBotBanF(botTokens.token, threaded=False, block_list=locLibs.dbFunc.getBlockList())
 locLibs.init(bot, botLogger)
 locLibs.dbFunc.mainSqlLoop.start()
+locLibs.botTools.backupStages()
 locLibs.reminders.startReminders(bot, botLogger)
 
 
