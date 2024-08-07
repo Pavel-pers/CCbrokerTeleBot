@@ -4,7 +4,7 @@ import sqlite3
 import threading
 import queue
 import logging
-from locLibs import reminders
+from locLibs import reminders, dataCaching
 import time
 from sys import argv as sysArgv
 
@@ -244,7 +244,18 @@ def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mai
 
 
 # point requests
+def getPointsIdsSet_onlyDb(loop: SqlLoop = mainSqlLoop):
+    comm = ('SELECT id FROM points',)
+    return set(map(lambda x: x[0], loop.addTask(comm, lambda dbCur: dbCur.fetchall()).wait()))
+
+
+def getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
+    return dataCaching.cachedPointsList.get()
+
+
 def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
+    dataCaching.clearPointsCache()
+
     addRegCity(city)
     reminders.addPoint(groupId, workHours)
 
@@ -254,6 +265,8 @@ def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop
 
 
 def updatePoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
+    dataCaching.clearPointsCache()
+
     def onProc(dbCur: sqlite3.Cursor):
         prevCity = dbCur.fetchone()[0]
         reminders.changePoint(groupId, workHours)

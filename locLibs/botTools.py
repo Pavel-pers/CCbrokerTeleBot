@@ -20,10 +20,9 @@ def blockUser(userId):
     dbFunc.addBlockUser(userId)
 
 
-def isMsgFromPoint(msg: telebot.types.Message):  # TODO check without db requests(cache)
-    return msg.chat.type in ['supergroup', 'channel'] and dbFunc.getPointById(
-        msg.chat.id) is not None or dbFunc.getPointById(
-        bot.get_chat(msg.chat.id).linked_chat_id) is not None
+def isMsgFromPoint(msg: telebot.types.Message):
+    pointSet = dbFunc.getPointsIdsSet()
+    return msg.chat.type in ['supergroup'] and msg.chat.id in pointSet
 
 
 def redirectMsg(msg: telebot.types.Message, header):
