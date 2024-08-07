@@ -8,10 +8,10 @@ from constants import Inline, Config, UserStages
 from locLibs import dbFunc
 from locLibs import botTools
 from locLibs import reminders
-from locLibs.simpleClasses import DataForInlineCB, Handlers
+from locLibs.simpleClasses import DataForCallBacks, Handlers
 from handlers import threadWorker
 
-dataForCb = DataForInlineCB()
+dataForCb = DataForCallBacks()
 threadQ = queue.Queue()
 
 

@@ -20,7 +20,7 @@ def blockUser(userId):
     dbFunc.addBlockUser(userId)
 
 
-def isMsgFromPoint(msg: telebot.types.Message):
+def isMsgFromPoint(msg: telebot.types.Message):  # TODO check without db requests(cache)
     return msg.chat.type in ['supergroup', 'channel'] and dbFunc.getPointById(
         msg.chat.id) is not None or dbFunc.getPointById(
         bot.get_chat(msg.chat.id).linked_chat_id) is not None
@@ -32,7 +32,7 @@ def redirectMsg(msg: telebot.types.Message, header):
 
     if msg.content_type == 'text':
         return (lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl),)
-    if msg.content_type == 'photo':  # TODO make photos grouping
+    if msg.content_type == 'photo':
         return (lambda ch, repl: bot.send_photo(ch, msg.photo[0].file_id, caption=text, reply_to_message_id=repl),)
     if msg.content_type == 'document':
         return (lambda ch, repl: bot.send_document(ch, msg.document.file_id, caption=text, reply_to_message_id=repl),)

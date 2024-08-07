@@ -1,10 +1,10 @@
 import telebot
 import logging
 from handlers import threadWorker
+from handlers.regPoint import pendingPermitions
 from locLibs import simpleClasses
 from locLibs import dbFunc
 from constants import FORUM_CHAT
-from handlers import threadWorker
 
 
 class WatchersHandler(simpleClasses.Handlers):
@@ -63,6 +63,10 @@ class WatchersHandler(simpleClasses.Handlers):
         dbFunc.clearConsultantProgress()
         self.bot.send_message(msg.chat.id, 'progress cleared')
 
+    def addPermission(self, msg: telebot.types.Message):
+        pendingPermitions.add(msg.chat.id)
+        self.bot.send_message(msg.chat.id, 'Permition added, be careful, permission will be able 5 minutes')
+
 
 handlers = WatchersHandler()
 
@@ -77,5 +81,5 @@ def startListening(bot: telebot.TeleBot, logger: logging.Logger):
 
     bot.message_handler(commands=['leaderboard', 'leaders'], func=isFromGeneralTopic)(handlers.showRating)
     bot.message_handler(commands=['clear_progress'], func=isFromGeneralTopic)(handlers.clearProgress)
-
+    bot.message_handler(commands=['add_group'], func=isFromGeneralTopic)(handlers)
     bot.my_chat_member_handler()

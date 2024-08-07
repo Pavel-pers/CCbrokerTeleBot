@@ -8,6 +8,7 @@ class Inline:
 class UserStages:
     CLIENT_REDIR = 1
     CLIENT_IN_CONVERSATION = 2
+    WARN = [10, 11, 12]
 
 
 class Config:
@@ -16,6 +17,7 @@ class Config:
     NEXT_PHOTO_WAIT_TIME = 0.5
     REMINDER_DELAY = 60 * 60
     BONUS_TIME = 60 * 90
+    PERMITION_WAIT = 60 * 5
 
 
 class Emoji:

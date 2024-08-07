@@ -245,25 +245,27 @@ def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mai
 
 # point requests
 def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
-    def onProc(dbCur: sqlite3.Cursor):
-        fetch = dbCur.fetchone()
-        if fetch is None:
-            addRegCity(city)
-            reminders.addPoint(groupId, workHours)
-            addTask = (
-                'INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)', (groupId, city, name, workHours))
-            loop.addTask(addTask, lambda dbCur1: dbConn.commit())
-        else:
-            prevCity = fetch[1]
-            reminders.changePoint(groupId, workHours)
-            delRegCity(prevCity)
-            addRegCity(city)
-            updTask = (
-                'UPDATE Points SET city = ?, name = ?, workH = ? WHERE id = ?', (city, name, workHours, groupId)
-            )
-            loop.addTask(updTask, lambda dbCur1: dbConn.commit())
+    addRegCity(city)
+    reminders.addPoint(groupId, workHours)
 
-    checkTask = ('SELECT * FROM Points WHERE id = ?', (groupId,))
+    addTask = (
+        'INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)', (groupId, city, name, workHours))
+    loop.addTask(addTask, lambda dbCur1: dbConn.commit())
+
+
+def updatePoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
+    def onProc(dbCur: sqlite3.Cursor):
+        prevCity = dbCur.fetchone()[0]
+        reminders.changePoint(groupId, workHours)
+        delRegCity(prevCity)
+        addRegCity(city)
+
+        updTask = (
+            'UPDATE Points SET city = ?, name = ?, workH = ? WHERE id = ?', (city, name, workHours, groupId)
+        )
+        loop.addTask(updTask, lambda dbCur1: dbConn.commit())
+
+    checkTask = ('SELECT city FROM Points WHERE id = ?', (groupId,))
     loop.addTask(checkTask, onProc)
 
 

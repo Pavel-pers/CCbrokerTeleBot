@@ -3,6 +3,7 @@ import queue
 import threading
 import time
 import telebot
+from constants import Config
 
 
 class TeleBotBanF(telebot.TeleBot):
@@ -13,8 +14,6 @@ class TeleBotBanF(telebot.TeleBot):
         else:
             self.blockUsers = set()
         super().__init__(*args, **kwargs)
-
-
 
     def get_updates(self, *args, **kwargs):
         jsonEvents = telebot.apihelper.get_updates(self.token, *args, **kwargs)
@@ -30,33 +29,64 @@ class TeleBotBanF(telebot.TeleBot):
         self.blockUsers.add(userId)
 
 
-class DataForInlineCB:
-    def __init__(self):
-        super().__init__()
-        self.dict = dict()
+class PendingItems:
+    def __init__(self, dataClass):
+        self.lock = threading.Lock()
         self.delPlans = queue.PriorityQueue()
-        threading.Thread(target=self.garbCollect, daemon=True).start()
+        self.data = dataClass()
+        threading.Thread(target=self.garbCollecter, daemon=True).start()
 
-    def add(self, key, data, aliveTime):
-        self.dict[key] = data
-        aliveUntil = int(time.time()) + aliveTime
-        self.delPlans.put((aliveUntil, key))
-
-    def get(self, key):
-        data = self.dict.get(key, None)
-        if data is not None:
-            self.dict.pop(key)
-        return data
-
-    def garbCollect(self):
+    def garbCollecter(self):
         while True:
             while not self.delPlans.empty():
-                aliveUntil, key = self.delPlans.get()
-                if int(time.time()) < aliveUntil:
-                    self.delPlans.put((aliveUntil, key))
-                    break
-                self.dict.pop(key, None)
-            time.sleep(1)
+                with self.lock:
+                    aliveUntil, key = self.delPlans.get()
+                    if int(time.time()) < aliveUntil:
+                        self.delPlans.put((aliveUntil, key))
+                        break
+                    self.dict.pop(key, None)
+            time.sleep(60 * 5)
+
+    def add(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def get(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class DataForCallBacks(PendingItems):
+    def __init__(self):
+        super().__init__(dict)
+        self.data: dict
+
+    def add(self, key, data, aliveTime):
+        with self.lock:
+            self.data[key] = data
+            aliveUntil = int(time.time()) + aliveTime
+            self.delPlans.put((aliveUntil, key))
+
+    def get(self, key):
+        with self.lock:
+            data = self.data.pop(key, None)
+            return data
+
+
+class PendingPermissions(PendingItems):
+    def __init__(self):
+        super().__init__(set)
+        self.data: set
+
+    def add(self, key):
+        with self.lock:
+            self.data.add(key)
+            aliveUntil = int(time.time()) + Config.PERMITION_WAIT
+            self.delPlans.put((aliveUntil, key))
+
+    def get(self, key):
+        if key in self.data:
+            self.data.remove(key)
+            return True
+        return False
 
 
 class PendingMessages:
