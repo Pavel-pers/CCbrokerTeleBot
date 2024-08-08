@@ -249,12 +249,15 @@ def getPointsIdsSet_onlyDb(loop: SqlLoop = mainSqlLoop):
     return set(map(lambda x: x[0], loop.addTask(comm, lambda dbCur: dbCur.fetchall()).wait()))
 
 
+cachedPointsSet = dataCaching.CachedData(getPointsIdsSet_onlyDb)
+
+
 def getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
-    return dataCaching.cachedPointsList.get()
+    return cachedPointsSet.get()
 
 
 def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
-    dataCaching.clearPointsCache()
+    cachedPointsSet.mark()
 
     addRegCity(city)
     reminders.addPoint(groupId, workHours)
@@ -265,7 +268,7 @@ def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop
 
 
 def updatePoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
-    dataCaching.clearPointsCache()
+    cachedPointsSet.mark()
 
     def onProc(dbCur: sqlite3.Cursor):
         prevCity = dbCur.fetchone()[0]
@@ -280,6 +283,24 @@ def updatePoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop
 
     checkTask = ('SELECT city FROM Points WHERE id = ?', (groupId,))
     loop.addTask(checkTask, onProc)
+
+
+def isPointClear(groupId, loop: SqlLoop = mainSqlLoop):  # returns True if there is no task on this point
+    checkTask = ('SELECT EXISTS(SELECT 1 FROM Tasks WHERE groupId = ?)', (groupId,))
+    return not loop.addTask(checkTask, lambda dbCur: dbCur.fetchone()[0] == 1).wait()
+
+
+def delPoint(groupId, loop: SqlLoop = mainSqlLoop):
+    cachedPointsSet.mark()
+    reminders.delPoint(groupId)
+
+    getCityTask = ('SELECT city FROM Points WHERE id = ?', (groupId,))
+    delPointTask = ('DELETE FROM Points WHERE id = ?', (groupId,))
+    delClientTask = ('DELETE FROM Clients WHERE bind = ?', (groupId,))
+
+    loop.addTask(getCityTask, lambda dbCur: delRegCity(dbCur.fetchone()[0]))
+    loop.addTask(delPointTask, lambda dbCur: dbConn.commit())
+    loop.addTask(delClientTask, lambda dbCur: dbConn.commit())
 
 
 def getPointsByCity(city, loop: SqlLoop = mainSqlLoop):

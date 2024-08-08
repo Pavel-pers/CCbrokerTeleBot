@@ -84,6 +84,11 @@ def addPoint(pointId, pointHours):
         remindersDict[pointId] = ReminderList(pointHours)
 
 
+def delPoint(pointId):
+    with remindersLock:
+        remindersDict.pop(pointId)
+
+
 def changePoint(pointId, pointHours):
     with remindersLock:
         remindersDict[pointId].workH = pointHours

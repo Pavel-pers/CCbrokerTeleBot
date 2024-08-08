@@ -4,6 +4,7 @@ import threading
 import time
 import telebot
 from constants import Config
+from locLibs.dbFunc import addBlockUser
 
 
 class TeleBotBanF(telebot.TeleBot):
@@ -27,7 +28,7 @@ class TeleBotBanF(telebot.TeleBot):
 
     def block_user(self, userId):
         self.blockUsers.add(userId)
-
+        addBlockUser(userId)
 
 class PendingItems:
     def __init__(self, dataClass):

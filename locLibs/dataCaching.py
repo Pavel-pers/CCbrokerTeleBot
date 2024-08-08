@@ -1,5 +1,4 @@
 import threading
-import dbFunc
 
 
 class CachedData:
@@ -18,15 +17,3 @@ class CachedData:
     def mark(self):
         self.topical = False
         self.data = None
-
-
-class CachedPointsList(CachedData):
-    def __init__(self):
-        super().__init__(dbFunc.getPointsIdsSet_onlyDb)
-
-
-cachedPointsList = CachedPointsList()
-
-
-def clearPointsCache():
-    cachedPointsList.mark()

@@ -1,10 +1,10 @@
 import telebot
 import logging
 from handlers import threadWorker
-from handlers.regPoint import pendingPermitions
+from handlers.pointCommands import pendingPermitions
 from locLibs import simpleClasses
 from locLibs import dbFunc
-from constants import FORUM_CHAT
+from constants import FORUM_CHAT, Config
 
 
 class WatchersHandler(simpleClasses.Handlers):
@@ -64,8 +64,13 @@ class WatchersHandler(simpleClasses.Handlers):
         self.bot.send_message(msg.chat.id, 'progress cleared')
 
     def addPermission(self, msg: telebot.types.Message):
-        pendingPermitions.add(msg.chat.id)
-        self.bot.send_message(msg.chat.id, 'Permition added, be careful, permission will be able 5 minutes')
+        if ' ' in msg.text:
+            groupId = msg.text[msg.text.find(' ') + 1:]
+            if groupId.isdigit():
+                pendingPermitions.add(int(groupId))
+                self.bot.send_message(msg.chat.id, 'Permition added, be careful, permission will be able 5 minutes')
+                return
+        self.bot.send_message(msg.chat.id, 'incorect format')
 
 
 handlers = WatchersHandler()
@@ -81,5 +86,10 @@ def startListening(bot: telebot.TeleBot, logger: logging.Logger):
 
     bot.message_handler(commands=['leaderboard', 'leaders'], func=isFromGeneralTopic)(handlers.showRating)
     bot.message_handler(commands=['clear_progress'], func=isFromGeneralTopic)(handlers.clearProgress)
-    bot.message_handler(commands=['add_group'], func=isFromGeneralTopic)(handlers)
+    bot.message_handler(commands=['add_point'], func=isFromGeneralTopic)(handlers.addPermission)
+
+    @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.id == FORUM_CHAT)
+    def unexpectedHandler(msg: telebot.types.Message):
+        pass
+
     bot.my_chat_member_handler()

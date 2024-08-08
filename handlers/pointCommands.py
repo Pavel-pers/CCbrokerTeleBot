@@ -64,12 +64,14 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
             bot.register_next_step_handler(reply, regPoint, gen)
 
     # begin work with point
+    #   -reg handler
     @bot.message_handler(commands=['start'],
                          func=lambda msg: msg.chat.type == 'supergroup' and botTools.isFromAdmin(msg))
     def welcomePoint(msg: telebot.types.Message):
         pointExists = botTools.isMsgFromPoint(msg)
-        if not pointExists and not pendingPermitions.get(msg.chat.id):
+        if not pointExists and not pendingPermitions.get((msg.chat.id % 90) + 10):
             unknownGroupHandler(msg)
+            return
 
         botLogger.debug('welcome point')
         botLogger.debug('got msg from:' + bot.get_chat_member(msg.chat.id, msg.from_user.id).status)
@@ -78,5 +80,20 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
         if not stopReg:
             bot.register_next_step_handler(reply, regPoint, regGenerator)
 
-    bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: not botTools.isMsgFromPoint(msg))(
-        unknownGroupHandler)
+    bot.message_handler(content_types=Config.ALLOWED_CONTENT,
+                        func=lambda msg: msg.chat.type == 'supergroup' and not botTools.isMsgFromPoint(msg))(
+        unknownGroupHandler)  # *this handler must process only after previous check
+
+    # ?      after goes handlers without checking if group unknow
+    #   -delete handler
+    @bot.message_handler(commands=['delete_point'], func=lambda msg: msg.chat.type == 'supergroup')
+    def deletePoint(msg: telebot.types.Message):
+        if not dbFunc.isPointClear(msg.chat.id):
+            bot.send_message(msg.chat.id, 'not all tasks have closed yet')
+        else:
+            dbFunc.delPoint(msg.chat.id)
+            bot.send_message(msg.chat.id, 'point was deleted')
+
+    @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.type == 'supergroup')
+    def unexpectedHandler(msg: telebot.types.Message):
+        pass
