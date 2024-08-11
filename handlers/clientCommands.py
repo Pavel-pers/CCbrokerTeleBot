@@ -82,7 +82,3 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
         reply, stopReg = next(renameProc)
         if not stopReg:
             bot.register_next_step_handler(reply, regClient, renameProc)
-
-    @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.type == 'private')
-    def unexpectedHandler(msg: telebot.types.Message):
-        pass

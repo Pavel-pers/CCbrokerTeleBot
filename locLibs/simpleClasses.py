@@ -45,7 +45,7 @@ class PendingItems:
                     if int(time.time()) < aliveUntil:
                         self.delPlans.put((aliveUntil, key))
                         break
-                    self.dict.pop(key, None)
+                    self.data.pop(key, None)
             time.sleep(60 * 5)
 
     def add(self, *args, **kwargs):

@@ -93,7 +93,3 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
         else:
             dbFunc.delPoint(msg.chat.id)
             bot.send_message(msg.chat.id, 'point was deleted')
-
-    @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.type == 'supergroup')
-    def unexpectedHandler(msg: telebot.types.Message):
-        pass

@@ -1,6 +1,6 @@
 import telebot
 import logging
-from tokens import bot as botTokens
+from tokens import telegramBot as botTokens
 import locLibs
 import handlers
 

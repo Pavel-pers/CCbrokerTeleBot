@@ -14,25 +14,26 @@ class WatchersHandler(simpleClasses.Handlers):
     def showRating(self, msg: telebot.types.Message):
         pointDict = dict()
 
+        def initPoint(row):
+            chatId, city, name = row[:3]
+            pointDict[chatId] = [[], 0, 0, (city, name)]
+
         def initConsultant(row):
             bind = row[5]
-            if bind not in pointDict:
-                pointDict[bind] = [[], 0, 0]
-
-            pointDict[bind][0].append((row[0], row[1], (row[3] / row[2] if row[2] else 0, row[2]), row[4]))
+            if row[2] > 0:
+                pointDict[bind][0].append((row[0], row[1], (row[3] / row[2], row[2]), row[4]))
             pointDict[bind][1] += row[2]
             pointDict[bind][2] += row[3]
 
+        dbFunc.iterateTable([initPoint], 'Points').wait()
         dbFunc.iterateTable([initConsultant], 'Consultants').wait()
-        self.logger.debug(pointDict)
+
         groupedByCity = dict()
 
         pointList = []
         for pointId, pointInfo in pointDict.items():
             consultantList = pointInfo[0]
-            point = dbFunc.getPointById(pointId)
-            pointName = point[2]
-            pointCity = point[1]
+            pointCity, pointName = pointInfo[3]
             pointList.append(
                 (pointCity + '_' + pointName, (pointInfo[2] / pointInfo[1] if pointInfo[1] else 0, pointInfo[1])))
             for consultant in consultantList:
