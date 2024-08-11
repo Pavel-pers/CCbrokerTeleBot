@@ -8,9 +8,7 @@ def regClient(bot: telebot.TeleBot):
             if bot.get_state(msg.chat.id) is None:
                 return func(msg)
             elif bot.get_state(msg.chat.id) == UserStages.CLIENT_IN_CONVERSATION:
-                inline = telebot.types.InlineKeyboardMarkup()
-                inline.add(telebot.types.InlineKeyboardButton('end conversation', callback_data=Inline.POST_QUIT))
-                bot.send_message(msg.chat.id, 'you are in conversation now', reply_markup=inline)
+                bot.send_message(msg.chat.id, 'you are in conversation now, ask consultant to close')
             else:
                 bot.send_message(msg.chat.id, 'sorry, you cant do this now')
 

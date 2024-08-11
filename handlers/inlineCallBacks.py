@@ -49,14 +49,6 @@ class CbHandlers(Handlers):
         else:
             raise 'inline callback data error'
 
-    def postQuit(self, call: telebot.types.CallbackQuery):
-        chatId = call.message.chat.id
-
-        topicId = dbFunc.getTaskByClientId(chatId)[3]
-        botTools.endFrorward(topicId, True)
-        self.bot.edit_message_text(call.message.text, chatId, call.message.id)
-        botTools.endTask(chatId)
-
     def rateHandler(self, call: telebot.types.CallbackQuery):
         rate = int(call.data.split(':')[1])
         chatId = call.message.chat.id
@@ -91,10 +83,6 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr=False
     @bot.callback_query_handler(func=lambda call: call.data in [Inline.POST_CANCEL, Inline.POST_CONTINUE])
     def postCancelContinue(call: telebot.types.CallbackQuery):
         threadQ.put((handlers.postCancelContinue, (call,)))
-
-    @bot.callback_query_handler(func=lambda call: call.data == Inline.POST_QUIT)
-    def postQuit(call: telebot.types.CallbackQuery):
-        threadQ.put((handlers.postQuit, (call,)))
 
     @bot.callback_query_handler(func=lambda call: call.data.startswith(Inline.RATE_PREF))
     def rateHandler(call: telebot.types.CallbackQuery):
