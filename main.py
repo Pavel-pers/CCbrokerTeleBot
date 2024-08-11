@@ -19,7 +19,6 @@ locLibs.dbFunc.mainSqlLoop.start()
 locLibs.botTools.backupStages()
 locLibs.reminders.startReminders(bot, botLogger)
 
-
 handlers.startListen(bot, botLogger)
 # TODO realise delete group handler
 
