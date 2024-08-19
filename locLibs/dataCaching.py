@@ -12,7 +12,7 @@ class CachedData:
         if not self.topical:
             self.data = self.updateFunc()
             self.topical = True
-        return self.data
+        return self.data.copy()
 
     def mark(self):
         self.topical = False

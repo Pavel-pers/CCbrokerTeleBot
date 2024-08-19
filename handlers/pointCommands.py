@@ -3,7 +3,7 @@ from locLibs import dbFunc
 from locLibs import botTools
 from locLibs import simpleTools
 from locLibs import simpleClasses
-from constants import UserStages, Config
+from constants import UserStages, Config, Replicas
 import logging
 from re import compile
 
@@ -14,29 +14,28 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
     def unknownGroupHandler(msg: telebot.types.Message):
         state = bot.get_state(msg.chat.id)
         if state == UserStages.WARN[2]:
-            bot.send_message(msg.chat.id, 'banned!')
+            bot.send_message(msg.chat.id, Replicas.BANNED_TEXT)
             bot.block_user(msg.chat.id)
         elif state in UserStages.WARN:
-            bot.send_message(msg.chat.id, 'warning N:' + str(state - UserStages.WARN[0] + 1))
+            bot.send_message(msg.chat.id, Replicas.WARN_PREFIX + str(state - UserStages.WARN[0] + 1))
             bot.set_state(msg.chat.id, state + 1)
         else:
             secret = (msg.chat.id % 90) + 10
-            bot.send_message(msg.chat.id, 'your secret code is ' + str(secret))
+            bot.send_message(msg.chat.id, Replicas.SECRET_CODE_PREFIX + str(secret))
             bot.set_state(msg.chat.id, UserStages.WARN[0])
 
     def regPointGen(msg: telebot.types.Message, pointExists: bool):
         msg: telebot.types.Message
         cityList = dbFunc.getCities()
         cityNames = list(map(lambda x: x[0], cityList))
-        pointIndex = yield from botTools.askWithKeyboard(msg.chat.id, 'welcome group, ask about city', cityNames, True)
+        pointIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.WELCOME_POINT, cityNames, True)
         pointCity, pointZone = cityList[pointIndex]
 
-        reply = bot.send_message(msg.chat.id,
-                                 'ask about work hours, in current city timezone, format\nHH:MM-HH:MM',
+        reply = bot.send_message(msg.chat.id, Replicas.ASK_WORK_HOURS_POINT,
                                  reply_markup=telebot.types.ReplyKeyboardRemove())
         msg = yield from botTools.waitRelpyFromAdmin(reply, False)
         while not simpleTools.workH_pattern.match(msg.text):
-            reply = bot.send_message(msg.chat.id, 'incorrect format')
+            reply = bot.send_message(msg.chat.id, Replicas.INCORECT_FORMAT)
             msg = yield from botTools.waitRelpyFromAdmin(reply, False)
         workH = msg.text
         start, finish = workH.split('-')
@@ -44,7 +43,7 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
         finish = simpleTools.timezoneConv(finish, pointZone)
         workH = start + '-' + finish
 
-        reply = bot.send_message(msg.chat.id, 'ask about name say about /rename')
+        reply = bot.send_message(msg.chat.id, Replicas.ASK_NAME_POINT)
         msg = yield from botTools.waitRelpyFromAdmin(reply, False)
         pointName = msg.text
 
@@ -54,7 +53,7 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
             dbFunc.updatePoint(msg.chat.id, pointCity, pointName, workH)
         else:
             dbFunc.addNewPoint(msg.chat.id, pointCity, pointName, workH)
-        reply = bot.send_message(msg.chat.id, 'data saved')
+        reply = bot.send_message(msg.chat.id, Replicas.ON_REGISTRATION_POINT)
         yield reply, True
 
     def regPoint(msg: telebot.types.Message, gen):
@@ -88,8 +87,10 @@ def startListen(bot: simpleClasses.TeleBotBanF, botLogger: logging.Logger):
     #   -delete handler
     @bot.message_handler(commands=['delete_point'], func=lambda msg: msg.chat.type == 'supergroup')
     def deletePoint(msg: telebot.types.Message):
-        if not dbFunc.isPointClear(msg.chat.id):
-            bot.send_message(msg.chat.id, 'not all tasks have closed yet')
+        if not botTools.isFromAdmin(msg):
+            bot.send_message(msg.chat.id, Replicas.ONLY_ADMIN)
+        elif not dbFunc.isPointClear(msg.chat.id):
+            bot.send_message(msg.chat.id, Replicas.NOT_ALL_ANSWERED)
         else:
             dbFunc.delPoint(msg.chat.id)
-            bot.send_message(msg.chat.id, 'point was deleted')
+            bot.send_message(msg.chat.id, Replicas.ON_DELETE_POINT)

@@ -9,7 +9,7 @@ import time
 from sys import argv as sysArgv
 
 dbLogger = logging.getLogger('DB_main')
-handler = logging.FileHandler('log/.log', mode='a')
+handler = logging.FileHandler('log/db.log', mode='a')
 formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s', '%H:%M:%S')
 handler.setFormatter(formatter)
 dbLogger.addHandler(handler)
@@ -98,11 +98,11 @@ csvLock = threading.Lock()
 
 
 def getCities():
-    return cachedData.cities
+    return cachedData.cities.copy()
 
 
 def getRegCities():
-    return cachedData.regCities
+    return cachedData.regCities.copy()
 
 
 def addRegCity(city):
@@ -160,8 +160,12 @@ def sqlWorker(workQueue: queue.Queue, finishEvent: threading.Event):
         except queue.Empty:
             continue
 
-        dbCur.execute(*request.command)  # unpack tuple to str and varible tuple
-        request.callback(dbCur)
+        try:
+            dbCur.execute(*request.command)  # unpack tuple to str and varible tuple
+            request.callback(dbCur)
+        except Exception as err:
+            err.add_note('Failed func:' + str(request.command[0]))
+            raise err
 
 
 class SqlRequest:

@@ -4,7 +4,9 @@ from handlers import threadWorker
 from handlers.pointCommands import pendingPermitions
 from locLibs import simpleClasses
 from locLibs import dbFunc
-from constants import FORUM_CHAT, Config
+from constants import Config, Replicas
+
+FORUM_CHAT = Config.FORUM_CHAT
 
 
 class WatchersHandler(simpleClasses.Handlers):
@@ -41,37 +43,39 @@ class WatchersHandler(simpleClasses.Handlers):
                     groupedByCity[pointCity] = []
                 groupedByCity[pointCity].append((consultant, pointName))
 
-        consultantsLeaderBoard = 'consultants leaderboard'
+        consultantsLeaderBoard = Replicas.CONSULTANT_LEADERBOARD + '\n'
         for city, consultantsList in groupedByCity.items():
-            consultantsLeaderBoard += f'\n-city: {city}-'
+            consultantsLeaderBoard += Replicas.CITY_TEXT_LEADERBOARD.format(city)
             consultantsList = sorted(consultantsList, key=lambda x: x[0][1], reverse=True)
             for consultant, point in consultantsList:
                 consultantId, name, rate, bonus = consultant
-                text = f'[@{name}](tg://user?id={consultantId}), pointName {point}:\nrating {rate[0]:.2f}, ansCount {rate[1]}, bonus {bonus}, '
+                text = Replicas.CONSULTANT_LEADER.format(tag=f'[@{name}](tg://user?id={consultantId})',
+                                                         point_name=point, average=rate[0], count=rate[1], bonus=bonus)
                 consultantsLeaderBoard += '\n' + text
+            consultantsLeaderBoard += '\n\n'
 
         self.bot.send_message(msg.chat.id, consultantsLeaderBoard, parse_mode='Markdown')
 
         pointList = sorted(pointList, key=lambda x: x[1], reverse=True)
-        pointLeaderBoard = 'point leaderboard'
+        pointLeaderBoard = Replicas.POINT_LEADERBOARD
 
         for pointName, rate in pointList:
-            pointLeaderBoard += '\n' + f'name {pointName}: rate {rate[0]:.2f}, answers {rate[1]}'
+            pointLeaderBoard += '\n' + Replicas.POINT_LEADER.format(name=pointName, rate=rate[0], count=rate[1])
 
         self.bot.send_message(msg.chat.id, pointLeaderBoard)
 
     def clearProgress(self, msg: telebot.types.Message):
         dbFunc.clearConsultantProgress()
-        self.bot.send_message(msg.chat.id, 'progress cleared')
+        self.bot.send_message(msg.chat.id, Replicas.SUCSESS_CLEAR_CONSULTANT)
 
     def addPermission(self, msg: telebot.types.Message):
         if ' ' in msg.text:
             groupId = msg.text[msg.text.find(' ') + 1:]
             if groupId.isdigit():
                 pendingPermitions.add(int(groupId))
-                self.bot.send_message(msg.chat.id, 'Permition added, be careful, permission will be able 5 minutes')
+                self.bot.send_message(msg.chat.id, Replicas.ON_PERMITION_ADDED)
                 return
-        self.bot.send_message(msg.chat.id, 'incorect format')
+        self.bot.send_message(msg.chat.id, Replicas.INCORECT_FORMAT)
 
 
 handlers = WatchersHandler()

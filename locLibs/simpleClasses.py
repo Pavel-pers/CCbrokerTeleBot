@@ -30,11 +30,13 @@ class TeleBotBanF(telebot.TeleBot):
         self.blockUsers.add(userId)
         addBlockUser(userId)
 
+
 class PendingItems:
-    def __init__(self, dataClass):
+    def __init__(self, dataClass, removeCB):
         self.lock = threading.Lock()
         self.delPlans = queue.PriorityQueue()
         self.data = dataClass()
+        self.removeCB = removeCB
         threading.Thread(target=self.garbCollecter, daemon=True).start()
 
     def garbCollecter(self):
@@ -45,7 +47,7 @@ class PendingItems:
                     if int(time.time()) < aliveUntil:
                         self.delPlans.put((aliveUntil, key))
                         break
-                    self.data.pop(key, None)
+                    self.removeCB(self.data, key)
             time.sleep(60 * 5)
 
     def add(self, *args, **kwargs):
@@ -57,7 +59,7 @@ class PendingItems:
 
 class DataForCallBacks(PendingItems):
     def __init__(self):
-        super().__init__(dict)
+        super().__init__(dict, lambda ex, key: ex.pop(key, None))
         self.data: dict
 
     def add(self, key, data, aliveTime):
@@ -74,7 +76,7 @@ class DataForCallBacks(PendingItems):
 
 class PendingPermissions(PendingItems):
     def __init__(self):
-        super().__init__(set)
+        super().__init__(set, set.discard)
         self.data: set
 
     def add(self, key):

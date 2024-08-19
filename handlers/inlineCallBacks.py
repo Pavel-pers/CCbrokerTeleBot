@@ -4,7 +4,7 @@ import telebot
 import logging
 import queue
 
-from constants import Inline, Config, UserStages
+from constants import Inline, Config, UserStages, Replicas
 from locLibs import dbFunc
 from locLibs import botTools
 from locLibs import reminders
@@ -31,16 +31,19 @@ class CbHandlers(Handlers):
         self.bot.clear_step_handler_by_chat_id(chatId)
 
         if call.data == Inline.POST_CANCEL:
-            self.bot.edit_message_text('post has canceled', chatId, msgId)  # TODO say if cbData not found
-            self.bot.send_message(chatId, 'enter /rename to rename, enter /set_point to replace')
+            if cbData is None and dbFunc.getTaskByClientId(call.message.chat.id) is not None:
+                self.bot.edit_message_text(Replicas.ERROR_ALREADY_IN_CONVERASTION, chatId, msgId)
+            else:
+                self.bot.edit_message_text(Replicas.ON_TASK_CANCEL, chatId, msgId)
+                self.bot.send_message(chatId, Replicas.ABOUT_CHANGE_DATA_CLIENT + '\n\n' + Replicas.SAY_ABOUT_ASK_QUESTION)
         elif call.data == Inline.POST_CONTINUE:
             if cbData is None:
-                self.bot.send_message(chatId, 'can you repeat your request?')
+                self.bot.send_message(chatId, Replicas.ASK_TO_REPEAT_CLIENT)
                 self.bot.edit_message_text(call.message.text, chatId, msgId)
             else:  # client starts the conversation
                 client, pointName, msg = cbData
                 self.bot.set_state(client[0], UserStages.CLIENT_IN_CONVERSATION)
-                self.bot.edit_message_text('message has sent', chatId, msgId)
+                self.bot.edit_message_text(Replicas.ON_TASK_CONTINUE, chatId, msgId)
                 channel, postId = botTools.addNewTask(client, msg)
                 topicId = botTools.startFrorward(client[2], client[1], pointName)
                 botTools.forwardMessage(topicId, msg)
@@ -54,16 +57,16 @@ class CbHandlers(Handlers):
         chatId = call.message.chat.id
         messageId = call.message.id
         cbData = dataForCb.get((chatId, messageId))
+        self.bot.edit_message_text(Replicas.THANKS_FOR_RATE, chatId, messageId)
+
         if cbData is None:
             self.logger.warning('client rate deleted post')
-            self.bot.edit_message_text('thanks!', chatId, messageId)
             return
 
         activeIds, topicId, bonus = cbData
         self.logger.debug('rate_inline_callback info:' + str(cbData))
         botTools.forwardRate(topicId, rate)
 
-        self.bot.edit_message_text('thanks! Rate:' + str(rate), chatId, messageId)
         for consultant in activeIds:
             dbFunc.addRateConsultant(consultant, rate, bonus)
 

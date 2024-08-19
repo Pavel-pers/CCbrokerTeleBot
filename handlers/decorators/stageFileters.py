@@ -1,5 +1,5 @@
 import telebot
-from constants import UserStages, Inline
+from constants import UserStages, Inline, Replicas
 
 
 def regClient(bot: telebot.TeleBot):
@@ -8,9 +8,9 @@ def regClient(bot: telebot.TeleBot):
             if bot.get_state(msg.chat.id) is None:
                 return func(msg)
             elif bot.get_state(msg.chat.id) == UserStages.CLIENT_IN_CONVERSATION:
-                bot.send_message(msg.chat.id, 'you are in conversation now, ask consultant to close')
+                bot.send_message(msg.chat.id, Replicas.ERROR_ALREADY_IN_CONVERASTION)
             else:
-                bot.send_message(msg.chat.id, 'sorry, you cant do this now')
+                bot.send_message(msg.chat.id, Replicas.UNDEFINED_ERROR)
 
         return wrapper
 

@@ -6,7 +6,7 @@ import handlers
 
 # setup logger
 botLogger = logging.getLogger('bot')
-handler = logging.FileHandler('log/.log', mode='a')
+handler = logging.FileHandler('log/bot.log', mode='a')
 formatter = logging.Formatter('[%(asctime)s](%(name)s)%(levelname)s:%(message)s', '%H:%M:%S')
 handler.setFormatter(formatter)
 botLogger.addHandler(handler)
