@@ -106,9 +106,9 @@ SUCSESS_REDIRECT = '{0} Переадресация прошла успешно'.
 # -leaderboard
 CONSULTANT_LEADERBOARD = 'Лидерборд среди консультантов {0}:'.format(Emoji.WINNER_MEDAL)
 POINT_LEADERBOARD = 'Лидерборд среди точек {0}:'.format(Emoji.CHAMPION)
-CITY_TEXT_LEADERBOARD = '-Город {0}-'
-CONSULTANT_LEADER = '{tag}\nточка' + Emoji.PIN + ': {point_name}\n' + Emoji.TARGET + ' ср.оценка:{average:.2f}, ' + Emoji.COUNT + ' кол-во ответов:{count}, бонусов:{bonus}'
-POINT_LEADER = Emoji.LABEL + ' Чат: {name}\nРейтинг' + Emoji.STAR + ': {rate}, кол-во ответов' + Emoji.COUNT + ': {count}'
+CITY_TEXT_LEADERBOARD = '<b><u>Город {0}</u></b>'
+CONSULTANT_LEADER = '{tag}\n' + Emoji.PIN + 'точка: <b>{point_name}</b>\n' + Emoji.TARGET + 'ср.оценка:{average:.2f}\n' + Emoji.COUNT + 'кол-во ответов:{count}\n' + Emoji.GIFT + 'бонусов:{bonus}'
+POINT_LEADER = Emoji.LABEL + ' Чат: <b>{name}</b>\n' + Emoji.STAR + ' Рейтинг: {rate:.2f}\n' + Emoji.COUNT + ' Колличество ответов: {count}'
 # -clear progress
 SUCSESS_CLEAR_CONSULTANT = 'Прогресс очищен {0}'.format(Emoji.TRASH)
 # -add permition

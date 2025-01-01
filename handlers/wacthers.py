@@ -3,7 +3,7 @@ import logging
 
 from handlers import threadWorker
 from handlers.pointCommands import pendingPermitions
-from locLibs import simpleClasses, dbFunc
+from locLibs import simpleClasses, dbFunc, simpleTools
 from constants import Config, Replicas
 
 FORUM_CHAT = Config.FORUM_CHAT
@@ -35,7 +35,7 @@ class WatchersHandler(simpleClasses.Handlers):
             consultantList = pointInfo[0]
             pointCity, pointName = pointInfo[3]
             pointList.append(
-                (pointCity + '_' + pointName, (pointInfo[2] / pointInfo[1] if pointInfo[1] else 0, pointInfo[1])))
+                (pointCity + ':' + pointName, (pointInfo[2] / pointInfo[1] if pointInfo[1] else 0, pointInfo[1])))
             for consultant in consultantList:
                 if pointCity not in groupedByCity:
                     groupedByCity[pointCity] = []
@@ -44,15 +44,15 @@ class WatchersHandler(simpleClasses.Handlers):
         consultantsLeaderBoard = Replicas.CONSULTANT_LEADERBOARD + '\n'
         for city, consultantsList in groupedByCity.items():
             consultantsLeaderBoard += Replicas.CITY_TEXT_LEADERBOARD.format(city)
-            consultantsList = sorted(consultantsList, key=lambda x: x[0][1], reverse=True)
+            consultantsList = sorted(consultantsList, key=lambda x: x[0][2][0], reverse=True)
             for consultant, point in consultantsList:
                 consultantId, name, rate, bonus = consultant
-                text = Replicas.CONSULTANT_LEADER.format(tag=f'[@{name}](tg://user?id={consultantId})',
+                text = Replicas.CONSULTANT_LEADER.format(tag=simpleTools.genMention(name, consultantId),
                                                          point_name=point, average=rate[0], count=rate[1], bonus=bonus)
                 consultantsLeaderBoard += '\n' + text
             consultantsLeaderBoard += '\n\n'
 
-        self.bot.send_message(msg.chat.id, consultantsLeaderBoard, parse_mode='Markdown')
+        self.bot.send_message(msg.chat.id, consultantsLeaderBoard, parse_mode='HTML')
 
         pointList = sorted(pointList, key=lambda x: x[1], reverse=True)
         pointLeaderBoard = Replicas.POINT_LEADERBOARD
@@ -60,7 +60,7 @@ class WatchersHandler(simpleClasses.Handlers):
         for pointName, rate in pointList:
             pointLeaderBoard += '\n\n' + Replicas.POINT_LEADER.format(name=pointName, rate=rate[0], count=rate[1])
 
-        self.bot.send_message(msg.chat.id, pointLeaderBoard)
+        self.bot.send_message(msg.chat.id, pointLeaderBoard, parse_mode='HTML')
 
     def clearProgress(self, msg: telebot.types.Message):
         dbFunc.clearConsultantProgress()
