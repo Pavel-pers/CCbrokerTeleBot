@@ -1,9 +1,9 @@
 import telebot
 import logging
+
 from handlers import threadWorker
 from handlers.pointCommands import pendingPermitions
-from locLibs import simpleClasses
-from locLibs import dbFunc
+from locLibs import simpleClasses, dbFunc
 from constants import Config, Replicas
 
 FORUM_CHAT = Config.FORUM_CHAT
@@ -17,15 +17,13 @@ class WatchersHandler(simpleClasses.Handlers):
         pointDict = dict()
 
         def initPoint(row):
-            chatId, city, name = row[:3]
-            pointDict[chatId] = [[], 0, 0, (city, name)]
+            chatId, point_city, point_name = row[:3]
+            pointDict[chatId] = [[], row[4], row[5], (point_city, point_name)]
 
         def initConsultant(row):
             bind = row[5]
             if row[2] > 0:
                 pointDict[bind][0].append((row[0], row[1], (row[3] / row[2], row[2]), row[4]))
-            pointDict[bind][1] += row[2]
-            pointDict[bind][2] += row[3]
 
         dbFunc.iterateTable([initPoint], 'Points').wait()
         dbFunc.iterateTable([initConsultant], 'Consultants').wait()
@@ -60,7 +58,7 @@ class WatchersHandler(simpleClasses.Handlers):
         pointLeaderBoard = Replicas.POINT_LEADERBOARD
 
         for pointName, rate in pointList:
-            pointLeaderBoard += '\n' + Replicas.POINT_LEADER.format(name=pointName, rate=rate[0], count=rate[1])
+            pointLeaderBoard += '\n\n' + Replicas.POINT_LEADER.format(name=pointName, rate=rate[0], count=rate[1])
 
         self.bot.send_message(msg.chat.id, pointLeaderBoard)
 
@@ -85,16 +83,17 @@ def isFromGeneralTopic(msg: telebot.types.Message):
     return msg.chat.id == FORUM_CHAT and msg.message_thread_id is None
 
 
-def startListening(bot: telebot.TeleBot, logger: logging.Logger):
+def startListening(bot: telebot.TeleBot, logger: logging.Logger, ignoreErrs: bool = False):
     handlers.set_bot(bot)
     handlers.set_logger(logger)
+    pool = threadWorker.PoolHandlers(1, logger, ignoreErrs, lambda x: 0, handler_name="WatcherHandler")
 
-    bot.message_handler(commands=['leaderboard', 'leaders'], func=isFromGeneralTopic)(handlers.showRating)
-    bot.message_handler(commands=['clear_progress'], func=isFromGeneralTopic)(handlers.clearProgress)
-    bot.message_handler(commands=['add_point'], func=isFromGeneralTopic)(handlers.addPermission)
+    bot.message_handler(commands=['leaderboard', 'leaders'], func=isFromGeneralTopic)(
+        pool.handlerDecorator(handlers.showRating))
+    bot.message_handler(commands=['clear_progress'], func=isFromGeneralTopic)(
+        pool.handlerDecorator(handlers.clearProgress))
+    bot.message_handler(commands=['add_point'], func=isFromGeneralTopic)(pool.handlerDecorator(handlers.addPermission))
 
     @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.id == FORUM_CHAT)
     def unexpectedHandler(msg: telebot.types.Message):
         pass
-
-    bot.my_chat_member_handler()

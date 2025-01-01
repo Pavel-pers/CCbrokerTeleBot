@@ -25,7 +25,7 @@ def distToTimeSgm(timeSegmentGmt: str, timeS=None):
         if finish >= curTime or start <= curTime:
             return 0
     else:
-        if start <= curTime and curTime <= finish:
+        if start <= curTime <= finish:
             return 0
     return ((start[0] * 60 + start[1]) - (curTime[0] * 60 + curTime[1])) % (24 * 60)
 

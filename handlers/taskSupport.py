@@ -1,26 +1,21 @@
-import threading
-import queue
 import telebot
 import logging
 
 from constants import Config, Inline, Replicas, UserStages
-from locLibs import dbFunc
-from locLibs import simpleClasses
-from locLibs import botTools
-from locLibs import simpleTools
-from locLibs import reminders
+from locLibs import dbFunc, simpleClasses, botTools, simpleTools, reminders
 from handlers.inlineCallBacks import addCbData
-from handlers.decorators import threaded, photoGrouping, processOnce
+from handlers.decorators import photoGrouping, processOnce
 from handlers import threadWorker
-import time
-
-clientLock = threaded.InProcHandlers()
 
 
-class TaskHandlers(simpleClasses.Handlers):
-    def __init__(self):
-        super().__init__()
+def handleClientSide(msg: telebot.types.Message, taskInfo):
+    client, group, postId = taskInfo[:3]  # skips birth info
+    cbList = botTools.redirectMsg(msg, Replicas.CLENT_ANSWER)
+    botTools.addComment(group, postId, cbList)
+    botTools.forwardMessage(taskInfo[3], msg)
 
+
+class ClientHandlers(simpleClasses.Handlers):
     # telegram side
     def catchChannelMsg(self, msg: telebot.types.Message):
         originGr = msg.forward_origin.chat.id
@@ -33,11 +28,13 @@ class TaskHandlers(simpleClasses.Handlers):
         botTools.processComments(originGr, originId, curGr, curId)
 
     # client side
-    #   -client hasn't answer inline question
+    #   -client hasn't answered inline question
+    def answerInlineProducer(self, msg, prevMsgId):
+        self.putTask(self.askToAnswerInline, (msg, prevMsgId))
+
     def askToAnswerInline(self, msg: telebot.types.Message, prevMsgId):
         inline = telebot.types.InlineKeyboardMarkup()
-        inline.add(telebot.types.InlineKeyboardButton(text='cancel', callback_data=Inline.POST_CANCEL))
-        reply = None
+        inline.add(telebot.types.InlineKeyboardButton(text=Replicas.CANCEL_BUTTON, callback_data=Inline.POST_CANCEL))
         try:
             reply = self.bot.send_message(msg.chat.id, Replicas.ASK_TO_ASNWER_BELLOW,
                                           reply_markup=inline, reply_to_message_id=prevMsgId)
@@ -45,7 +42,7 @@ class TaskHandlers(simpleClasses.Handlers):
             reply = self.bot.send_message(msg.chat.id, Replicas.ASK_TO_ASNWER_BELLOW,
                                           reply_markup=inline)
         self.bot.register_next_step_handler(
-            reply, lambda recMsg, prevId: clientQ.put((self.askToAnswerInline, (recMsg, prevId))), prevMsgId)
+            reply, self.answerInlineProducer, prevMsgId)
 
     #   -process first message from client
     def handleStartConversation(self, msg: telebot.types.Message):
@@ -67,31 +64,28 @@ class TaskHandlers(simpleClasses.Handlers):
         reply = self.bot.send_message(msg.chat.id, confirmText, reply_markup=inlineKeyboard, parse_mode='HTML')
 
         self.bot.register_next_step_handler_by_chat_id(
-            reply.chat.id, lambda recMsg, replyId: clientQ.put((self.askToAnswerInline, (recMsg, replyId))),
-            reply.id)  # reg waiting
+            reply.chat.id, self.answerInlineProducer, reply.id)  # reg waiting
 
         shrinkedMsg = simpleClasses.MsgContent(msg)
         addCbData((reply.chat.id, None), (client, pointName, shrinkedMsg))
 
     #   -client add message to existing task
-    def handleClientSide(self, msg: telebot.types.Message, taskInfo):
-        client, group, postId = taskInfo[:3]  # skips birth info
-        cbList = botTools.redirectMsg(msg, Replicas.CLENT_ANSWER)
-        botTools.addComment(group, postId, cbList)
-        botTools.forwardMessage(taskInfo[3], msg)
 
     #   - entry point
-    @threaded.thread_friendly(clientLock, lambda args: args[1].chat.id)
     def handleClient(self, msg: telebot.types.Message):
         self.logger.debug('begin processing msg from client:' + str(msg.chat.id))
         taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
         if taskInfo is None:
             self.handleStartConversation(msg)
         else:
-            self.handleClientSide(msg, taskInfo)
+            handleClientSide(msg, taskInfo)
         self.logger.debug('end processing msg from client:' + str(msg.chat.id))
 
-    # consultant side
+
+class ConsultantHandlers(simpleClasses.Handlers):
+    def __init__(self):
+        super().__init__()
+
     #   -redirect functions
     def redirectClientGen(self, msg: telebot.types.Message, client, consultantName, topicId):
         msg: telebot.types.Message
@@ -109,7 +103,8 @@ class TaskHandlers(simpleClasses.Handlers):
                                                         Replicas.SAY_ABOUT_CANCEL + '\n\n' + Replicas.ASK_ABOUT_REDIRECT_CITY,
                                                         answersList, False)
             if cityIndex == len(answersList) - 1:
-                reply = self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+                self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+                reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
                 yield reply, True
 
             newCity = answersList[cityIndex]
@@ -127,7 +122,8 @@ class TaskHandlers(simpleClasses.Handlers):
         pointIndx = yield from botTools.askToChoice(msg.chat.id, postMsg.id, None, Replicas.ASK_ABOUT_REDIRECT_POINT,
                                                     answersList, False)
         if pointIndx == len(answersList) - 1:
-            reply = self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+            self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+            reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
             yield reply, True
 
         pointName = answersList[pointIndx]
@@ -138,6 +134,7 @@ class TaskHandlers(simpleClasses.Handlers):
 
         if msg.text == '/cancel':
             self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+            reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
             yield reply, True
 
         self.bot.send_message(clientId, Replicas.SUCSESS_REDIRECT)
@@ -159,11 +156,12 @@ class TaskHandlers(simpleClasses.Handlers):
             self.bot.register_for_reply(post, self.redirProducer, clientId, gen)
         else:
             self.bot.delete_state(clientId)
+            self.bot.set_state(clientId, UserStages.CLIENT_IN_CONVERSATION)
 
     @processOnce.getDecorator(keyInd=1)
     @photoGrouping.getDecorator(msgIndx=1)
     def redirProducer(self, *args):
-        cosultantQ.put((self.redirectClient, args))
+        self.putTask(self.redirectClient, args)
 
     #   -entry point
     def handleConsultant(self, msg: telebot.types.Message):
@@ -213,6 +211,9 @@ class TaskHandlers(simpleClasses.Handlers):
             if not stop:
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
                 self.bot.register_for_reply(postMsg, self.redirProducer, clientId, redirProc)
+            else:
+                self.bot.delete_state(clientId)
+                self.bot.set_state(clientId, UserStages.CLIENT_IN_CONVERSATION)
         else:
             reminders.markReminder(replyChat, clientId)
             botTools.forwardMessage(task[3], msg)
@@ -223,45 +224,50 @@ class TaskHandlers(simpleClasses.Handlers):
                 cb(clientId, None)
 
 
-handlers = TaskHandlers()
-clientQ = queue.Queue()
-cosultantQ = queue.Queue()
+handlersCo = ConsultantHandlers()  # using cos = client side
+handlersCl = ClientHandlers()  # using cls = consultant side
 
 
 def startListenClient(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
     # set up handlers and thread pool
-    handlers.set_bot(bot)
-    handlers.set_logger(botLogger)
-
-    workerPool = [threading.Thread(target=threadWorker.worker, args=(clientQ, botLogger, ignoreErrs)) for i in range(5)]
-    for i in workerPool:
-        i.start()
+    pool = threadWorker.PoolHandlers(5, botLogger, ignoreErrs, lambda msg, *args: msg.chat.id % 5,
+                                     handler_name="TaskClsHandler")
+    handlersCl.set_bot(bot)
+    handlersCl.set_logger(botLogger)
+    handlersCl.set_work_queue_interactor(pool.addTask)
 
     # add handlers to telebot
-    @bot.message_handler(func=lambda message: message.from_user.id == 777000 and botTools.isMsgFromPoint(message),
-                         content_types=Config.ALLOWED_CONTENT)
-    def catchProducer(msg: telebot.types.Message):
-        clientQ.put((handlers.catchChannelMsg, (msg,)))
+    bot.message_handler(func=lambda message: message.from_user.id == 777000 and botTools.isMsgFromPoint(message),
+                        content_types=Config.ALLOWED_CONTENT)(
+        pool.handlerDecorator(
+            handlersCl.catchChannelMsg
+        )
+    )
 
-    @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)
-    @photoGrouping.getDecorator()
-    def clientProducer(msg: telebot.types.Message):
-        clientQ.put((handlers.handleClient, (msg,)))
+    bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=Config.ALLOWED_CONTENT)(
+        photoGrouping.getDecorator()(
+            pool.handlerDecorator(
+                handlersCl.handleClient
+            )
+        )
+    )
 
 
 def startListenConsultant(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs=False):
     # set up handlers and thread pool
-    handlers.set_bot(bot)
-    handlers.set_logger(botLogger)
-    workerPool = [threading.Thread(target=threadWorker.worker, args=(cosultantQ, botLogger, ignoreErrs))
-                  for i in range(3)]
-    for i in workerPool:
-        i.start()
-
+    pool = threadWorker.PoolHandlers(3, botLogger, ignoreErrs, lambda msg, *args: msg.chat.id % 3,
+                                     handler_name="TaskCosHandler")
+    handlersCo.set_bot(bot)
+    handlersCo.set_logger(botLogger)
+    handlersCo.set_work_queue_interactor(pool.addTask)
     # add handlers to telebot
 
-    @bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)
-    @processOnce.getDecorator()
-    @photoGrouping.getDecorator()
-    def consultantProducer(msg: telebot.types.Message):
-        cosultantQ.put((handlers.handleConsultant, (msg,)))
+    bot.message_handler(func=botTools.isPostReply, content_types=Config.ALLOWED_CONTENT)(
+        processOnce.getDecorator()(
+            photoGrouping.getDecorator()(
+                pool.handlerDecorator(
+                    handlersCo.handleConsultant
+                )
+            )
+        )
+    )

@@ -1,14 +1,13 @@
-import dataclasses
+from dataclasses import dataclass, field
 import logging
-
 import telebot
 import threading
 import time
 import queue
+
 from constants import Config
-from dataclasses import dataclass, field
-from typing import Any
 from handlers.decorators import processOnce
+from handlers import threadWorker
 from functools import wraps
 
 delPendQ = queue.PriorityQueue()
@@ -77,19 +76,23 @@ def isWaiting(mediaId, blocking):
             return int(mediaId) in waitingMedia
 
 
-def startListen(bot: telebot.TeleBot, logger: logging.Logger):
-    threading.Thread(target=photoCollector, args=(logger,), daemon=True).start()
+def startListen(bot: telebot.TeleBot, logger: logging.Logger, ignoreErrs: bool = False):
+    threading.Thread(target=photoCollector, args=(logger,), name="PhotoCollector", daemon=True).start()
+
+    pool = threadWorker.PoolHandlers(1, logger, ignoreErrs, lambda *args: 0, handler_name="PhotoGroupHandler")
 
     @bot.message_handler(content_types=['photo'],
                          func=lambda msg: not processOnce.previsousKeyGlobal.isProcessed(msg)
                                           and isWaiting(msg.media_group_id, True))
+    @pool.handlerDecorator
     def recievePhoto(msg: telebot.types.Message):
         processOnce.previsousKeyGlobal.addKey(msg)
         logger.debug('collecting new img by:' + msg.media_group_id)
         media = waitingMedia[int(msg.media_group_id)][0]
         media.append(
             (telebot.types.InputMediaPhoto(media=msg.photo[0].file_id, caption=msg.text or msg.caption), msg.id))
-        delPendQ.put(PendingMedia(time.time() + Config.NEXT_PHOTO_WAIT_TIME, len(media), int(msg.media_group_id), media))
+        delPendQ.put(
+            PendingMedia(time.time() + Config.NEXT_PHOTO_WAIT_TIME, len(media), int(msg.media_group_id), media))
         mediaInfoLock.release()
         return
 
@@ -98,7 +101,7 @@ def getDecorator(msgIndx=0):
     """
     returns decorator which wrap func processing group of photos
     !functionns using this decorator must process one message only one time
-    !return code telebot.ContinueHandling may lead to UB
+    !return code telebot.ContinueHandling can lead to UB
     :param msgIndx: index of msg parametr
     :return:
     """

@@ -6,7 +6,7 @@ import queue
 import logging
 from locLibs import reminders, dataCaching
 import time
-from sys import argv as sysArgv
+from sys import argv as sys_argv
 
 dbLogger = logging.getLogger('DB_main')
 handler = logging.FileHandler('log/db.log', mode='a')
@@ -16,7 +16,7 @@ dbLogger.addHandler(handler)
 dbLogger.setLevel(logging.DEBUG)
 
 dbConn = sqlite3.connect('data/database.db', check_same_thread=False)
-if __name__ == "__main__":  # TODO save time data in minutes
+if __name__ == "__main__":
     print('preparing tables')
     dbCurr = dbConn.cursor()
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Tasks(
@@ -37,9 +37,9 @@ if __name__ == "__main__":  # TODO save time data in minutes
         bind INTEGER
     );""")
     dbConn.commit()
-
+    # TODO change it
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Consultants(
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY, 
         name TEXT NOT NULL,
         ansCnt INTEGER DEFAULT 0,
         rateSm INTEGER DEFAULT 0,
@@ -52,7 +52,9 @@ if __name__ == "__main__":  # TODO save time data in minutes
         id INTEGER PRIMARY KEY,
         city TEXT NOT NULL,
         name TEXT NOT NULL,
-        workH TEXT DEFAULT NULL
+        workH TEXT DEFAULT NULL,
+        ansCnt INTEGER DEFAULT 0,
+        rateSm INTEGER DEFAULT 0
     );""")
     dbConn.commit()
 
@@ -75,7 +77,6 @@ def addBlockUser(userId):
         f.write(str(userId) + '\n')
 
 
-# -csv functions
 # -csv functions
 class CachedData:
     def __init__(self):
@@ -137,13 +138,13 @@ def delRegCity(city):
         with open('data/regCities.csv', 'r') as f:
             reader = csv.reader(f)
             for row in reader:
-                row[1] = int(row[1])
-                if row[0] == city:
-                    row[1] -= 1
-                if row[1] > 0:
-                    citiesC.append(row)
+                city_i, count_i = row[0], int(row[1])
+                if city_i == city:
+                    count_i -= 1
+                if count_i > 0:
+                    citiesC.append((city_i, count_i))
                 else:
-                    cities.remove(row[0])
+                    cities.remove(city_i)
         with open('data/regCities.csv', 'w', newline='') as f:
             writer = csv.writer(f)
             for row in citiesC:
@@ -185,18 +186,26 @@ class SqlRequest:
 
 
 class SqlLoop:
-    def __init__(self, logger: logging.Logger, maxsize=20):
+    loops_count = 1
+
+    def __init__(self, logger: logging.Logger, maxsize=20, loop_name=None):
+        if loop_name is None:
+            self.loop_name = "sql_loop:" + str(SqlLoop.loops_count)
+        else:
+            self.loop_name = loop_name
+
         self.finishEv = threading.Event()
         self.workQ = queue.Queue(maxsize)
-        self.workTh = threading.Thread(target=sqlWorker, args=(self.workQ, self.finishEv))
+        self.workTh = threading.Thread(target=sqlWorker, args=(self.workQ, self.finishEv), name=loop_name)
         self.logger = logger
+
+        SqlLoop.loops_count += 1
 
     def start(self):
         self.workTh.start()
         self.logger.info('loop started')
 
     def addTask(self, commInfo, onProcesed) -> SqlRequest:  # returns request class
-        request = None
         if dbLogger.level == logging.DEBUG:
             def modfFunc(dbCur):
                 dbLogger.debug('processed-' + str(commInfo))
@@ -222,7 +231,7 @@ class SqlLoop:
             self.logger.info('stopped loop')
 
 
-mainSqlLoop = SqlLoop(dbLogger)  # TODO make on each table different loops
+mainSqlLoop = SqlLoop(dbLogger, loop_name="mainSqlLoop")  # TODO make on each table different loops
 
 
 # general sql requests
@@ -248,12 +257,12 @@ def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mai
 
 
 # point requests
-def getPointsIdsSet_onlyDb(loop: SqlLoop = mainSqlLoop):
+def __getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
     comm = ('SELECT id FROM points',)
     return set(map(lambda x: x[0], loop.addTask(comm, lambda dbCur: dbCur.fetchall()).wait()))
 
 
-cachedPointsSet = dataCaching.CachedData(getPointsIdsSet_onlyDb)
+cachedPointsSet = dataCaching.CachedData(__getPointsIdsSet)
 
 
 def getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
@@ -317,6 +326,18 @@ def getPointById(chatId, loop: SqlLoop = mainSqlLoop):
     command = ('SELECT * FROM Points WHERE id=?', (chatId,))
     task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
     return task.wait()
+
+
+def addRatePoint(chatId, newRate, loop: SqlLoop = mainSqlLoop):
+    newRate = int(newRate)
+    checkComm = ('SELECT ansCnt,rateSm FROM Points WHERE id=?', (chatId,))
+
+    def onProc(dbCur: sqlite3.Cursor):
+        ansCnt, rateSm = dbCur.fetchone()
+        updComm = ('UPDATE Points SET ansCnt = ?, rateSm = ? WHERE id=?', (ansCnt + 1, rateSm + newRate, chatId))
+        loop.addTask(updComm, lambda dbCur1: dbConn.commit())
+
+    loop.addTask(checkComm, onProc)
 
 
 # client requests
@@ -451,7 +472,7 @@ def getActiveIdsById(clientId, loop: SqlLoop = mainSqlLoop):
     return task.wait().split(';')[:-1]
 
 
-if __name__ == '__main__' and len(sysArgv) > 1 and sysArgv[1] == '-t':
+if __name__ == '__main__' and len(sys_argv) > 1 and sys_argv[1] == '-t':
     mainSqlLoop.start()
     funcDict = globals()
     funcName = ''

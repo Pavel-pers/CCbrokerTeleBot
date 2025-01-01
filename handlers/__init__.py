@@ -5,7 +5,6 @@ from handlers import inlineCallBacks
 from handlers import taskSupport
 from handlers.decorators import photoGrouping
 from handlers import wacthers
-import threading
 
 
 def startListen(bot, botLogger):

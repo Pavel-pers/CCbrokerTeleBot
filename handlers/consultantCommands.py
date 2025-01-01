@@ -1,12 +1,17 @@
 import telebot
-from locLibs import dbFunc
-from locLibs.botTools import *
 import logging
+
+from handlers import threadWorker
+from locLibs import dbFunc
+from locLibs import botTools
 from constants import Replicas
 
 
-def startListen(bot: telebot.TeleBot, botLogger: logging.Logger):
-    @bot.message_handler(commands=['set_name', 'rename'], func=lambda msg: dbFunc.getPointById(msg.chat.id) is not None)
+def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: bool = False):
+    pool = threadWorker.PoolHandlers(1, botLogger, ignoreErrs, lambda *args: 0, handler_name="ConsultantHandler")
+
+    @bot.message_handler(commands=['set_name'], func=botTools.isMsgFromPoint)
+    @pool.handlerDecorator
     def setNameConsultant(msg: telebot.types.Message):
         replyId = None
         if msg.reply_to_message is not None:

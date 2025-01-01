@@ -3,9 +3,8 @@ import logging
 import threading
 import time
 
-import constants
 from locLibs import dbFunc, simpleTools
-from constants import Config
+from constants import Config, Replicas
 
 
 class ReminderList:
@@ -23,13 +22,13 @@ class ReminderList:
             self.future_stage[clientId] = (int(time.time()), userName)
         return inCurStage is not None
 
-    def addTask(self, clientId, clientName, mdfTime=None):
+    def addTask(self, clientId, clientName, start_time=None):
         curTime = int(time.time())
-        if mdfTime is not None:
-            if Config.REMINDER_DELAY + mdfTime < curTime:
-                self.cur_stage[clientId] = (mdfTime, clientName)
+        if start_time is not None:
+            if Config.REMINDER_DELAY + start_time < curTime:
+                self.cur_stage[clientId] = (start_time, clientName)
             else:
-                self.future_stage[clientId] = (mdfTime, clientName)
+                self.future_stage[clientId] = (start_time, clientName)
         else:
             self.future_stage[clientId] = (curTime, clientName)
 
@@ -49,14 +48,13 @@ class ReminderList:
     def genText(self, curTime) -> str:
         reminderText = ''
         for start, client in self.cur_stage.values():
-            reminderText += f'\n{client} + waiting aproximatly {(curTime - start) / 3600:.1f}h'
+            reminderText += Replicas.REMINDER_TEXT.format(client=client, wait_time=(curTime - start) / 3600)
         return reminderText
 
 
 def worker(bot: telebot.TeleBot, logger: logging.Logger, reminders: dict):
-    time.sleep(10 * 60)  # restore time after crash(for process messages, recieved on crash time)
-    while True:
-        time.sleep(Config.REMINDER_DELAY)
+    time.sleep(60)  # ! restore time after crash(for process messages, recieved on crash time)
+    while True:  # TODO debug vers
         curTime = time.time()
         logger.debug('--new reminder iter--')
         with remindersLock:
@@ -69,10 +67,11 @@ def worker(bot: telebot.TeleBot, logger: logging.Logger, reminders: dict):
                         reminder.future_stage))
                     remText = reminder.genText(curTime)
                     if remText:
-                        bot.send_message(chatId, 'please, answer clients bellow' + remText)
+                        bot.send_message(chatId, Replicas.REMINDER_HEADER + remText)
 
                 logger.debug('finish with:' + str(chatId))
                 reminder.nextStage()
+        time.sleep(Config.REMINDER_DELAY)
 
 
 remindersLock = threading.Lock()
@@ -111,12 +110,13 @@ def markReminder(pointId, clientId):
 
 
 def startReminders(bot: telebot.TeleBot, logger: logging.Logger):
+    # recover saved remiders
     dbFunc.iterateTable([lambda row: addPoint(row[0], row[3])], 'Points').wait()
     taskList = dbFunc.getAllData('Tasks', ('groupId', 'clientId', 'lastActiveTime'))
     for pointId, clientId, startTime in taskList:
         clientName = dbFunc.getClientById(clientId)[1]
         regReminder(pointId, clientId, clientName, startTime)
-
-    workerTh = threading.Thread(target=worker, args=(bot, logger, remindersDict), daemon=True)
+    # start main thread
+    workerTh = threading.Thread(target=worker, args=(bot, logger, remindersDict), daemon=True, name="remindersWorker")
     workerTh.start()
     return workerTh

@@ -1,13 +1,9 @@
-import threading
-
 import telebot
 import logging
 import queue
 
 from constants import Inline, Config, UserStages, Replicas
-from locLibs import dbFunc
-from locLibs import botTools
-from locLibs import reminders
+from locLibs import dbFunc, botTools, reminders
 from locLibs.simpleClasses import DataForCallBacks, Handlers
 from handlers import threadWorker
 
@@ -27,7 +23,7 @@ class CbHandlers(Handlers):
         chatId = call.message.chat.id
         msgId = call.message.id
         cbData = dataForCb.get((chatId, None))
-        self.logger.debug('work on post cancel/continue callback: saved data: ' + str(cbData))
+        self.logger.debug('cancel/continue callback: saved data: ' + str(cbData))
         self.bot.clear_step_handler_by_chat_id(chatId)
 
         if call.data == Inline.POST_CANCEL:
@@ -35,7 +31,8 @@ class CbHandlers(Handlers):
                 self.bot.edit_message_text(Replicas.ERROR_ALREADY_IN_CONVERASTION, chatId, msgId)
             else:
                 self.bot.edit_message_text(Replicas.ON_TASK_CANCEL, chatId, msgId)
-                self.bot.send_message(chatId, Replicas.ABOUT_CHANGE_DATA_CLIENT + '\n\n' + Replicas.SAY_ABOUT_ASK_QUESTION)
+                self.bot.send_message(chatId,
+                                      Replicas.ABOUT_CHANGE_DATA_CLIENT + '\n\n' + Replicas.SAY_ABOUT_ASK_QUESTION)
         elif call.data == Inline.POST_CONTINUE:
             if cbData is None:
                 self.bot.send_message(chatId, Replicas.ASK_TO_REPEAT_CLIENT)
@@ -63,12 +60,13 @@ class CbHandlers(Handlers):
             self.logger.warning('client rate deleted post')
             return
 
-        activeIds, topicId, bonus = cbData
+        activeIds, pointId, topicId, bonus = cbData
         self.logger.debug('rate_inline_callback info:' + str(cbData))
         botTools.forwardRate(topicId, rate)
 
         for consultant in activeIds:
             dbFunc.addRateConsultant(consultant, rate, bonus)
+        dbFunc.addRatePoint(pointId, rate)
 
 
 handlers = CbHandlers()
@@ -76,17 +74,18 @@ handlers = CbHandlers()
 
 def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr=False):
     # post cancel or continue, listener
+    pool = threadWorker.PoolHandlers(3, botLogger, ignoreErr, lambda call, *args: call.message.chat.id % 3,
+                                     handler_name="InlinesHandler")
     handlers.set_bot(bot)
     handlers.set_logger(botLogger)
 
-    workerPool = [threading.Thread(target=threadWorker.worker, args=(threadQ, botLogger, ignoreErr)) for i in range(3)]
-    for i in workerPool:
-        i.start()
-
-    @bot.callback_query_handler(func=lambda call: call.data in [Inline.POST_CANCEL, Inline.POST_CONTINUE])
-    def postCancelContinue(call: telebot.types.CallbackQuery):
-        threadQ.put((handlers.postCancelContinue, (call,)))
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith(Inline.RATE_PREF))
-    def rateHandler(call: telebot.types.CallbackQuery):
-        threadQ.put((handlers.rateHandler, (call,)))
+    bot.callback_query_handler(func=lambda call: call.data in [Inline.POST_CANCEL, Inline.POST_CONTINUE])(
+        pool.handlerDecorator(
+            handlers.postCancelContinue
+        )
+    )
+    bot.callback_query_handler(func=lambda call: call.data.startswith(Inline.RATE_PREF))(
+        pool.handlerDecorator(
+            handlers.rateHandler
+        )
+    )

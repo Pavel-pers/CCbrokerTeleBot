@@ -1,14 +1,12 @@
 """
 works only on non-threaded handlers(listeners) yet
 """
-import threading
-import logging
 from telebot import types
 
 
 def _formatKey(key):
     if type(key) is types.Message:
-        return (key.chat.id, key.id)
+        return key.chat.id, key.id
     elif type(key) is types.CallbackQuery:
         return (key.id,)
     else:

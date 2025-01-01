@@ -1,8 +1,8 @@
-import telebot
 import logging
-from tokens import telegramBot as botTokens
-import locLibs
+
 import handlers
+import locLibs
+from tokens import telegramBot as botTokens
 
 # setup logger
 botLogger = logging.getLogger('bot')

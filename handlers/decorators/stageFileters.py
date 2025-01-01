@@ -1,5 +1,5 @@
 import telebot
-from constants import UserStages, Inline, Replicas
+from constants import UserStages, Replicas
 
 
 def regClient(bot: telebot.TeleBot):

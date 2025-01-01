@@ -1,6 +1,6 @@
+from typing import Generator
 from datetime import datetime
 import telebot
-from telebot.types import KeyboardButton
 import time
 
 from locLibs import dbFunc
@@ -8,7 +8,7 @@ from locLibs import simpleClasses
 from handlers.inlineCallBacks import addCbData
 from constants import Emoji, Inline, Config, UserStages, Replicas
 
-bot: telebot.TeleBot
+bot: simpleClasses.TeleBotBanF
 
 
 def backupStages():  # add stage to users in conversation
@@ -22,7 +22,7 @@ def blockUser(userId):
 
 def isMsgFromPoint(msg: telebot.types.Message) -> bool:
     pointSet = dbFunc.getPointsIdsSet()
-    return msg.chat.type in ['supergroup'] and msg.chat.id in pointSet
+    return msg.chat.type == 'supergroup' and msg.chat.id in pointSet
 
 
 def redirectMsg(msg: telebot.types.Message, header) -> tuple:
@@ -59,7 +59,11 @@ def isFromAdmin(msg: telebot.types.Message) -> bool:
     return bot.get_chat_member(msg.chat.id, msg.from_user.id).status in ['administrator', 'creator']
 
 
-def waitRelpyFromAdmin(reply, stopReg) -> telebot.types.Message:
+def waitRelpyFromAdmin(reply, stopReg) -> Generator[
+    tuple[telebot.types.Message, bool],
+    telebot.types.Message,
+    telebot.types.Message
+]:
     msg = yield reply, stopReg
     while not isFromAdmin(msg):
         reply = bot.send_message(msg.chat.id, Replicas.NEED_ADMIN)
@@ -67,7 +71,11 @@ def waitRelpyFromAdmin(reply, stopReg) -> telebot.types.Message:
     return msg
 
 
-def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> int:  # !use only with generators
+def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> Generator[
+    tuple[telebot.types.Message, bool],
+    telebot.types.Message,
+    int
+]:
     header += '\n' + Replicas.KEYBOARD_INSTRACTION + '\n'
 
     reply_mrkp = telebot.types.ReplyKeyboardMarkup()
@@ -78,7 +86,11 @@ def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> i
     return ansIndex
 
 
-def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool) -> int:
+def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool) -> Generator[
+    tuple[telebot.types.Message, bool],
+    telebot.types.Message,
+    int
+]:
     text = header
     for i in range(len(answerList)):
         text += '\n' + str(i + 1) + ': ' + answerList[i]
@@ -125,7 +137,7 @@ def addComment(chatId, postId, msgFuncs):
 def addNewTask(client, postMsg: telebot.types.Message):
     clientId, clientName, clientCity, clientBind = client
     clientChannel = bot.get_chat(clientBind).linked_chat_id
-    header = Replicas.NEW_TASK.format(name=clientName, city=clientCity)
+    header = Replicas.NEW_TASK.format(name=clientName)
 
     cbList = redirectMsg(postMsg, header)
     post = cbList[0](clientChannel, None)
@@ -138,7 +150,7 @@ def addNewTask(client, postMsg: telebot.types.Message):
 
 #   -delete data in DB and ask client
 def endTask(clientId):
-    inline = telebot.types.InlineKeyboardMarkup(row_width=5)
+    inline = telebot.types.InlineKeyboardMarkup()
     for i in range(1, 6):
         inline.add(telebot.types.InlineKeyboardButton(Emoji.RATE[i], callback_data=Inline.RATE_PREF + str(i)))
 
@@ -152,17 +164,19 @@ def endTask(clientId):
     if int(time.time()) - birthTime < Config.BONUS_TIME:
         bot.send_message(groupId, Replicas.QUICK_CLOSE_TASK, reply_to_message_id=postId)
         bonus = True
+    else:
+        bot.send_message(groupId, Replicas.GENERAL_CLOSE_TASK, reply_to_message_id=postId)
 
     activeIds = task[4].split(';')[:-1]
     topicId = task[3]
-    addCbData((clientId, reply.message_id), (activeIds, topicId, bonus))
+    addCbData((clientId, reply.message_id), (activeIds, groupId, topicId, bonus))
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
 
 
 # forwarding func
 #   -open task, forum
-def maybeThreadNotExistsDecorator(func):
+def maybeTopicNotExistsDecorator(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -174,28 +188,28 @@ def maybeThreadNotExistsDecorator(func):
 
 
 def startFrorward(clientCity: str, clientName: str, pointName):
-    time = datetime.today().strftime('%m/%d %H:%M')
-    topic = bot.create_forum_topic(Config.FORUM_CHAT, f'{clientCity} [{time}] "{clientName}"',
+    today_date = datetime.today().strftime('%m/%d %H:%M')
+    topic = bot.create_forum_topic(Config.FORUM_CHAT, f'{clientCity} [{today_date}] "{clientName}"',
                                    icon_custom_emoji_id=Emoji.OPEN_TASK)
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_OPEN_WATCHERS.format(client=clientName, chat=pointName),
                      message_thread_id=topic.message_thread_id)
     return topic.message_thread_id
 
 
-@maybeThreadNotExistsDecorator
+@maybeTopicNotExistsDecorator
 def endFrorward(threadId):
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_CLOSED_WATCHERS,
                      message_thread_id=threadId)
     bot.edit_forum_topic(Config.FORUM_CHAT, threadId, icon_custom_emoji_id=Emoji.CLOSED_TASK)
 
 
-@maybeThreadNotExistsDecorator
+@maybeTopicNotExistsDecorator
 def forwardRate(threadId, rate):
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_RATE_TOPIC_WATCHERS + str(rate), message_thread_id=threadId)
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_RATE_GENERAL_WATCHERS + str(rate))  # TODO make link to topic
 
 
-@maybeThreadNotExistsDecorator
+@maybeTopicNotExistsDecorator
 def forwardMessage(threadId: int, msg: telebot.types.Message):
     if msg.content_type == 'media_group':
         msgIds = list(map(lambda p: p[1], msg.photo))
@@ -204,7 +218,7 @@ def forwardMessage(threadId: int, msg: telebot.types.Message):
         bot.forward_message(Config.FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
 
 
-@maybeThreadNotExistsDecorator
+@maybeTopicNotExistsDecorator
 def forwardRedir(threadId: int, consultant: str, pointCity: str, pointName: str, postMsg):  # TODO send new post text
     bot.send_message(Config.FORUM_CHAT,
                      Replicas.TASK_REDIRECT_WATCHERS.format(consultant=consultant, newCity=pointCity,

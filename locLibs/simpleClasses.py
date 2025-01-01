@@ -5,6 +5,7 @@ import time
 import telebot
 from constants import Config
 from locLibs.dbFunc import addBlockUser
+from functools import wraps
 
 
 class TeleBotBanF(telebot.TeleBot):
@@ -30,14 +31,28 @@ class TeleBotBanF(telebot.TeleBot):
         self.blockUsers.add(userId)
         addBlockUser(userId)
 
+    @wraps(telebot.TeleBot.edit_message_text)  # sometimes(very rarely)we edit already modified msg(because of async)
+    def edit_message_text(self, *args, **kwargs):
+        try:
+            super().edit_message_text(*args, **kwargs)
+        except telebot.apihelper.ApiTelegramException as e:
+            if e.description != 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message':
+                raise e
+
 
 class PendingItems:
-    def __init__(self, dataClass, removeCB):
+    init_count = 1
+
+    def __init__(self, dataClass, removeCB, garbageCollectorName: str | None = None):
+        if garbageCollectorName is None:
+            garbageCollectorName = "GC:" + str(PendingItems.init_count)
+
+        PendingItems.init_count += 1
         self.lock = threading.Lock()
         self.delPlans = queue.PriorityQueue()
         self.data = dataClass()
         self.removeCB = removeCB
-        threading.Thread(target=self.garbCollecter, daemon=True).start()
+        threading.Thread(target=self.garbCollecter, daemon=True, name=garbageCollectorName).start()
 
     def garbCollecter(self):
         while True:
@@ -59,7 +74,7 @@ class PendingItems:
 
 class DataForCallBacks(PendingItems):
     def __init__(self):
-        super().__init__(dict, lambda ex, key: ex.pop(key, None))
+        super().__init__(dict, lambda ex, key: ex.pop(key, None), "GC:callbacks")
         self.data: dict
 
     def add(self, key, data, aliveTime):
@@ -76,7 +91,7 @@ class DataForCallBacks(PendingItems):
 
 class PendingPermissions(PendingItems):
     def __init__(self):
-        super().__init__(set, set.discard)
+        super().__init__(set, set.discard, "GC:permitions")
         self.data: set
 
     def add(self, key):
@@ -141,6 +156,11 @@ class Handlers:
     def set_logger(self, logger):
         self.logger = logger
 
+    def set_work_queue_interactor(self,
+                                  addNewTask):  # set up function that add handlers in work queue of threaded handlers
+        self.putTask = addNewTask
+
     def __init__(self):
-        self.bot: telebot.TeleBot = None
-        self.logger: logging.Logger = None
+        self.putTask = None
+        self.bot: TeleBotBanF | None = None
+        self.logger: logging.Logger | None = None
