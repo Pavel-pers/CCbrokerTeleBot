@@ -170,8 +170,13 @@ class ConsultantHandlers(simpleClasses.Handlers):
         replyId = postMsg.message_id
         self.logger.debug('processing comment: chat' + str(replyChat) + ',post' + str(replyId))
 
+        if not botTools.is_member(self.bot.get_chat_member(msg.chat.id, msg.from_user.id)):
+            self.bot.reply_to(postMsg, Replicas.ASK_TO_JOIN_GROUP)
+            return
+
         consultant = dbFunc.getConsultantById(msg.from_user.id)
         if consultant is None:  # consultant has skiped the registration
+            self.logger.warning("no consultant found")
             self.bot.reply_to(postMsg, Replicas.ASK_NAME_CONSULTANT)
             return
 

@@ -20,6 +20,14 @@ def blockUser(userId):
     dbFunc.addBlockUser(userId)
 
 
+def is_member(chat_member: telebot.types.ChatMember):
+    return chat_member.status == 'member' or chat_member.status == 'creator' or chat_member.status == 'administrator'
+
+
+def is_new_user_event(event: telebot.types.ChatMemberUpdated):
+    return not is_member(event.old_chat_member) and is_member(event.new_chat_member)
+
+
 def isMsgFromPoint(msg: telebot.types.Message) -> bool:
     pointSet = dbFunc.getPointsIdsSet()
     return msg.chat.type == 'supergroup' and msg.chat.id in pointSet

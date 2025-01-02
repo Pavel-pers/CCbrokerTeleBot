@@ -37,7 +37,7 @@ if __name__ == "__main__":
         bind INTEGER
     );""")
     dbConn.commit()
-    # TODO change it
+    # TODO recreate primiry keys in consultants table
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS Consultants(
         id INTEGER PRIMARY KEY, 
         name TEXT NOT NULL,
