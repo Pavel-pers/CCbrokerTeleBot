@@ -54,7 +54,6 @@ class Handlers(simpleClasses.Handlers):
             self.bot.register_next_step_handler(reply, self.setupProducer, gen)
 
     def setupClient(self, msg: telebot.types.Message):
-        self.logger.debug('welcome user')
         regProc = self.setupClientGen(msg)
         reply, stopReg = next(regProc)
         if not stopReg:

@@ -97,22 +97,22 @@ def startListen(bot: telebot.TeleBot, logger: logging.Logger, ignoreErrs: bool =
         return
 
 
-def getDecorator(msgIndx=0):
+def getDecorator(msgParamIndx=0):
     """
     returns decorator which wrap func processing group of photos
     !functionns using this decorator must process one message only one time
     !return code telebot.ContinueHandling can lead to UB
-    :param msgIndx: index of msg parametr
+    :param msgParamIndx: index of msg parametr
     :return:
     """
 
     def decorator(handler):
         @wraps(handler)
         def wrapper(*args):
-            msg: telebot.types.Message = args[msgIndx]
+            msg: telebot.types.Message = args[msgParamIndx]
             if msg.content_type != 'photo' or msg.media_group_id is None:
                 return handler(*args)
-            parseImgGroup(lambda recMsg: handler(*args[:msgIndx], recMsg, *args[msgIndx + 1:]), msg)
+            parseImgGroup(lambda recMsg: handler(*args[:msgParamIndx], recMsg, *args[msgParamIndx + 1:]), msg)
             return None
 
         return wrapper

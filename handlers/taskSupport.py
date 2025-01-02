@@ -159,7 +159,7 @@ class ConsultantHandlers(simpleClasses.Handlers):
             self.bot.set_state(clientId, UserStages.CLIENT_IN_CONVERSATION)
 
     @processOnce.getDecorator(keyInd=1)
-    @photoGrouping.getDecorator(msgIndx=1)
+    @photoGrouping.getDecorator(msgParamIndx=1)
     def redirProducer(self, *args):
         self.putTask(self.redirectClient, args)
 

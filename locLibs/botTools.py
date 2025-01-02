@@ -1,4 +1,4 @@
-from typing import Generator
+from typing import Generator, Callable
 from datetime import datetime
 import telebot
 import time
@@ -33,7 +33,14 @@ def isMsgFromPoint(msg: telebot.types.Message) -> bool:
     return msg.chat.type == 'supergroup' and msg.chat.id in pointSet
 
 
-def redirectMsg(msg: telebot.types.Message, header) -> tuple:
+def redirectMsg(msg: telebot.types.Message, header) -> tuple[Callable[[int, int | None], telebot.types.Message]]:
+    """
+    callback generator
+    :param msg: message to redirect
+    :param header: prefix text which will be written to redirect message
+    :return: tuple of sending functions, which takes params: send_to, reply_to
+    """
+
     text = msg.text or msg.caption or ''
     text = header + '\n' + text
 

@@ -2,8 +2,9 @@ import telebot
 import logging
 
 from handlers import threadWorker
+from handlers.decorators import photoGrouping, processOnce
 from handlers.pointCommands import pendingPermitions
-from locLibs import simpleClasses, dbFunc, simpleTools
+from locLibs import simpleClasses, dbFunc, simpleTools, botTools
 from constants import Config, Replicas
 
 FORUM_CHAT = Config.FORUM_CHAT
@@ -75,6 +76,20 @@ class WatchersHandler(simpleClasses.Handlers):
                 return
         self.bot.send_message(msg.chat.id, Replicas.INCORECT_FORMAT)
 
+    # - task support
+    #  - task in process
+    def topicSupport(self, msg: telebot.types.Message):
+        topicId = msg.message_thread_id
+        taskInfo = dbFunc.getTaskByTopic(topicId)
+        if taskInfo is None:
+            self.bot.send_message(msg.chat.id, "sorry not found", message_thread_id=topicId)
+            return
+
+        clientId = taskInfo[0]
+        redirectCallbacks = botTools.redirectMsg(msg, "sent by admin")
+        for redir_func in redirectCallbacks:
+            redir_func(clientId, None)
+
 
 handlers = WatchersHandler()
 
@@ -92,7 +107,14 @@ def startListening(bot: telebot.TeleBot, logger: logging.Logger, ignoreErrs: boo
         pool.handlerDecorator(handlers.showRating))
     bot.message_handler(commands=['clear_progress'], func=isFromGeneralTopic)(
         pool.handlerDecorator(handlers.clearProgress))
-    bot.message_handler(commands=['add_point'], func=isFromGeneralTopic)(pool.handlerDecorator(handlers.addPermission))
+    bot.message_handler(commands=['add_point'], func=isFromGeneralTopic)(
+        pool.handlerDecorator(handlers.addPermission))
+
+    bot.message_handler(content_types=Config.ALLOWED_CONTENT,
+                        func=lambda msg: msg.chat.id == Config.FORUM_CHAT and not isFromGeneralTopic(msg))(
+        processOnce.getDecorator()(
+            photoGrouping.getDecorator()(
+                pool.handlerDecorator(handlers.topicSupport))))
 
     @bot.message_handler(content_types=Config.ALLOWED_CONTENT, func=lambda msg: msg.chat.id == FORUM_CHAT)
     def unexpectedHandler(msg: telebot.types.Message):
