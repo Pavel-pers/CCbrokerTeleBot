@@ -2,7 +2,7 @@ import telebot
 import logging
 import queue
 
-from constants import Inline, Config, UserStages, Replicas
+from constants import Inline, Config, UserStages, Replicas, Emoji
 from locLibs import dbFunc, botTools, reminders
 from locLibs.simpleClasses import DataForCallBacks, Handlers
 from handlers import threadWorker
@@ -68,6 +68,14 @@ class CbHandlers(Handlers):
             dbFunc.addRateConsultant(consultant, rate, bonus)
         dbFunc.addRatePoint(pointId, rate)
 
+    def watcherStartTalk(self, call: telebot.types.CallbackQuery):
+        clientId = int(call.data[len(Inline.WATCHERS_TALK_PREF):])
+        topicId = call.message.message_thread_id
+        chatId = call.message.chat.id
+        msgId = call.message.id
+        dbFunc.addNewClosedTask(clientId=clientId, topicId=topicId)
+        self.bot.edit_message_text(Replicas.EDIT_ON_REFLECTION, chatId, msgId)
+        self.bot.edit_forum_topic(Config.FORUM_CHAT, topicId, icon_custom_emoji_id=Emoji.VIEWING_TASK)
 
 handlers = CbHandlers()
 
@@ -89,3 +97,10 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr=False
             handlers.rateHandler
         )
     )
+    bot.callback_query_handler(func=lambda call: call.data.startswith(Inline.WATCHERS_TALK_PREF))(
+        pool.handlerDecorator(
+            handlers.watcherStartTalk
+        )
+    )
+
+

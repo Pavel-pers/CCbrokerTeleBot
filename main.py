@@ -23,7 +23,7 @@ handlers.startListen(bot, botLogger)
 # TODO realise delete group handler
 
 try:
-    bot.polling(allowed_updates=['message', 'edited_message', 'channel_post', 'my_chat_member', 'chat_member', 'chat_join_request'], non_stop=True)
+    bot.polling(allowed_updates=['message', 'edited_message', 'channel_post', 'my_chat_member', 'chat_member', 'chat_join_request', 'callback_query'], non_stop=True)
 except Exception as err:
     locLibs.dbFunc.mainSqlLoop.killLoop()  # we crashed, shutdown the loop
     raise err

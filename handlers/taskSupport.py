@@ -9,7 +9,7 @@ from handlers import threadWorker
 
 
 def handleClientSide(msg: telebot.types.Message, taskInfo):
-    client, group, postId = taskInfo[:3]  # skips birth info
+    client, group, postId = taskInfo[:3]
     cbList = botTools.redirectMsg(msg, Replicas.CLENT_ANSWER)
     botTools.addComment(group, postId, cbList)
     botTools.forwardMessage(taskInfo[3], msg)
@@ -76,7 +76,12 @@ class ClientHandlers(simpleClasses.Handlers):
         self.logger.debug('begin processing msg from client:' + str(msg.chat.id))
         taskInfo = dbFunc.getTaskByClientId(msg.from_user.id)
         if taskInfo is None:
-            self.handleStartConversation(msg)
+            endTaskInfo = dbFunc.getClosedTaskByClientId(msg.from_user.id)
+            if endTaskInfo is None:
+                self.handleStartConversation(msg)
+            else: # * watcher reflection
+                topicId = endTaskInfo[0]
+                botTools.forwardMessage(topicId, msg)
         else:
             handleClientSide(msg, taskInfo)
         self.logger.debug('end processing msg from client:' + str(msg.chat.id))
@@ -193,14 +198,13 @@ class ConsultantHandlers(simpleClasses.Handlers):
         if msg.text == '/close':
             reminders.delReminder(replyChat, clientId)
             botTools.forwardMessage(task[3], msg)
-            botTools.endFrorward(task[3])
+            botTools.endFrorward(task[3], clientId)
 
             botTools.endTask(clientId)
         elif msg.text == '/ban':
             reminders.delReminder(replyChat, clientId)
-
             botTools.forwardMessage(task[3], msg)
-            botTools.endFrorward(task[3])
+            botTools.endFrorward(task[3], clientId)
 
             dbFunc.delTask(clientId)
             dbFunc.delClient(clientId)

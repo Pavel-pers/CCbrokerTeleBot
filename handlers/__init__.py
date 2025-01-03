@@ -8,11 +8,11 @@ from handlers import wacthers
 
 
 def startListen(bot, botLogger):
-    photoGrouping.startListen(bot, botLogger)  # must have first place
-    inlineCallBacks.startListen(bot, botLogger)  # backend
-    wacthers.startListening(bot, botLogger)
+    photoGrouping.startListen(bot, botLogger)  # !must have first place
+    inlineCallBacks.startListen(bot, botLogger)  # * backend
+    wacthers.startListening(bot, botLogger)  # !must be first before backend because of watcher reflection
     clientCommands.startListen(bot, botLogger)
     pointCommands.startListen(bot, botLogger)
-    consultantCommands.startListen(bot, botLogger)  # commands handlers
+    consultantCommands.startListen(bot, botLogger)  # * commands handlers
     taskSupport.startListenClient(bot, botLogger)
-    taskSupport.startListenConsultant(bot, botLogger)  # task handlers
+    taskSupport.startListenConsultant(bot, botLogger)  # * task handlers

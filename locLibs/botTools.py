@@ -1,3 +1,4 @@
+import functools
 from typing import Generator, Callable
 from datetime import datetime
 import telebot
@@ -33,9 +34,16 @@ def isMsgFromPoint(msg: telebot.types.Message) -> bool:
     return msg.chat.type == 'supergroup' and msg.chat.id in pointSet
 
 
-def redirectMsg(msg: telebot.types.Message, header) -> tuple[Callable[[int, int | None], telebot.types.Message]]:
+def linkToTopic(threadId: int):
+    return "https://t.me/" + str(Config.FORUM_CHAT)[4:] + "/" + str(threadId)
+
+
+def redirectMsg(msg: telebot.types.Message, header, **kwargs) -> list[
+    Callable[[int, int | None], telebot.types.Message]
+]:
     """
     callback generator
+    :param parse_mode: parse mode in send_message param
     :param msg: message to redirect
     :param header: prefix text which will be written to redirect message
     :return: tuple of sending functions, which takes params: send_to, reply_to
@@ -45,34 +53,40 @@ def redirectMsg(msg: telebot.types.Message, header) -> tuple[Callable[[int, int 
     text = header + '\n' + text
 
     if msg.content_type == 'text':
-        return (lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl),)
+        return [lambda ch, repl: bot.send_message(ch, text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'photo':
-        return (lambda ch, repl: bot.send_photo(ch, msg.photo[0].file_id, caption=text, reply_to_message_id=repl),)
+        return [lambda ch, repl:
+                bot.send_photo(ch, msg.photo[0].file_id, caption=text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'document':
-        return (lambda ch, repl: bot.send_document(ch, msg.document.file_id, caption=text, reply_to_message_id=repl),)
+        return [lambda ch, repl:
+                bot.send_document(ch, msg.document.file_id, caption=text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'audio':
-        return (lambda ch, repl: bot.send_audio(ch, msg.audio.file_id, caption=text, reply_to_message_id=repl),)
+        return [lambda ch, repl:
+                bot.send_audio(ch, msg.audio.file_id, caption=text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'video':
-        return (lambda ch, repl: bot.send_video(ch, msg.video.file_id, caption=text, reply_to_message_id=repl),)
+        return [lambda ch, repl:
+                bot.send_video(ch, msg.video.file_id, caption=text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'voice':
-        return (lambda ch, repl: bot.send_voice(ch, msg.voice.file_id, caption=text, reply_to_message_id=repl),)
+        return [lambda ch, repl:
+                bot.send_voice(ch, msg.voice.file_id, caption=text, reply_to_message_id=repl, **kwargs), ]
     if msg.content_type == 'video_note':
-        return (
-            lambda ch, repl: bot.send_message(ch, header + '\n' + Replicas.REDIRECT_VIDEO, reply_to_message_id=repl),
-            lambda ch, repl: bot.send_video_note(ch, msg.video_note.file_id, reply_to_message_id=repl))
+        return [lambda ch, repl:
+                bot.send_message(ch, header + '\n' + Replicas.REDIRECT_VIDEO, reply_to_message_id=repl, **kwargs),
+                lambda ch, repl: bot.send_video_note(ch, msg.video_note.file_id, reply_to_message_id=repl)]
     if msg.content_type == 'sticker':
-        return (
-            lambda ch, repl: bot.send_message(ch, header + '\n' + Replicas.REDIRECT_STICKER, reply_to_message_id=repl),
-            lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl))
+        return [
+            lambda ch, repl:
+            bot.send_message(ch, header + '\n' + Replicas.REDIRECT_STICKER, reply_to_message_id=repl, **kwargs),
+            lambda ch, repl: bot.send_sticker(ch, msg.sticker.file_id, reply_to_message_id=repl)]
     if msg.content_type == 'media_group':
-        photos = list(map(lambda p: p[0], msg.photo))
+        photos: list[telebot.types.InputMediaPhoto] = list(map(lambda p: p[0], msg.photo))
         photos[0].caption = header + '\n' + (photos[0].caption or '')
-        return (lambda ch, repl: bot.send_media_group(ch, photos, reply_to_message_id=repl),)
-
+        for kw, arg in kwargs.items():
+            setattr(photos[0], kw, arg)  # TODO test it
+        return (lambda ch, repl: bot.send_media_group(ch, photos, reply_to_message_id=repl, ),)
 
 def isFromAdmin(msg: telebot.types.Message) -> bool:
     return bot.get_chat_member(msg.chat.id, msg.from_user.id).status in ['administrator', 'creator']
-
 
 def waitRelpyFromAdmin(reply, stopReg) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -84,7 +98,6 @@ def waitRelpyFromAdmin(reply, stopReg) -> Generator[
         reply = bot.send_message(msg.chat.id, Replicas.NEED_ADMIN)
         msg = yield reply, False
     return msg
-
 
 def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -99,7 +112,6 @@ def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> G
 
     ansIndex = yield from askToChoice(chatId, None, reply_mrkp, header, answerList, onlyAdmin)
     return ansIndex
-
 
 def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -125,19 +137,15 @@ def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: boo
 
     return int(answer) - 1 if answer.isdigit() else answerList.index(answer)
 
-
 def isPostReply(msg: telebot.types.Message) -> bool:
     return msg.reply_to_message is not None and msg.reply_to_message.from_user.id == 777000 and isMsgFromPoint(msg)
-
 
 # task funcs
 pendingPostMsgs = simpleClasses.PendingMessages()  # messages which waiting telegramm repeat
 
-
 #   -comments func
 def processComments(oldChat, oldReply, newChat, newReply):
     pendingPostMsgs.processCB(oldChat, oldReply, newChat, newReply)
-
 
 def addComment(chatId, postId, msgFuncs):
     if pendingPostMsgs.isWaiting(chatId, postId):
@@ -146,7 +154,6 @@ def addComment(chatId, postId, msgFuncs):
     else:
         for cb in msgFuncs:
             cb(chatId, postId)
-
 
 #   - post message, save in DB
 def addNewTask(client, postMsg: telebot.types.Message):
@@ -161,7 +168,6 @@ def addNewTask(client, postMsg: telebot.types.Message):
     for i in cbList[1:]:
         pendingPostMsgs.add(clientChannel, replyId, i)
     return clientChannel, replyId
-
 
 #   -delete data in DB and ask client
 def endTask(clientId):
@@ -188,7 +194,6 @@ def endTask(clientId):
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
 
-
 # forwarding func
 #   -open task, forum
 def maybeTopicNotExistsDecorator(func):
@@ -201,7 +206,6 @@ def maybeTopicNotExistsDecorator(func):
 
     return wrapper
 
-
 def startFrorward(clientCity: str, clientName: str, pointName):
     today_date = datetime.today().strftime('%m/%d %H:%M')
     topic = bot.create_forum_topic(Config.FORUM_CHAT, f'{clientCity} [{today_date}] "{clientName}"',
@@ -210,19 +214,22 @@ def startFrorward(clientCity: str, clientName: str, pointName):
                      message_thread_id=topic.message_thread_id)
     return topic.message_thread_id
 
-
 @maybeTopicNotExistsDecorator
-def endFrorward(threadId):
+def endFrorward(threadId, clientId):
+    inline_to_talk = telebot.types.InlineKeyboardMarkup()
+    talk_button = telebot.types.InlineKeyboardButton(Replicas.INLINE_BUTTON_REFLECTION,
+                                                     callback_data=Inline.WATCHERS_TALK_PREF + str(clientId))
+    inline_to_talk.add(talk_button)
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_CLOSED_WATCHERS,
-                     message_thread_id=threadId)
+                     message_thread_id=threadId, reply_markup=inline_to_talk)
     bot.edit_forum_topic(Config.FORUM_CHAT, threadId, icon_custom_emoji_id=Emoji.CLOSED_TASK)
-
 
 @maybeTopicNotExistsDecorator
 def forwardRate(threadId, rate):
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_RATE_TOPIC_WATCHERS + str(rate), message_thread_id=threadId)
-    bot.send_message(Config.FORUM_CHAT, Replicas.TASK_RATE_GENERAL_WATCHERS + str(rate))  # TODO make link to topic
-
+    bot.send_message(Config.FORUM_CHAT,
+                     Replicas.TASK_RATE_GENERAL_WATCHERS + str(rate) + '\n' + Replicas.LINK_TO_TOPIC.format(
+                         linkToTopic(threadId)), parse_mode='HTML')  # TODO make link to topic
 
 @maybeTopicNotExistsDecorator
 def forwardMessage(threadId: int, msg: telebot.types.Message):
@@ -232,9 +239,9 @@ def forwardMessage(threadId: int, msg: telebot.types.Message):
     else:
         bot.forward_message(Config.FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
 
-
 @maybeTopicNotExistsDecorator
-def forwardRedir(threadId: int, consultant: str, pointCity: str, pointName: str, postMsg):  # TODO send new post text
+def forwardRedir(threadId: int, consultant: str, pointCity: str, pointName: str,
+                 postMsg):  # TODO send new post text
     bot.send_message(Config.FORUM_CHAT,
                      Replicas.TASK_REDIRECT_WATCHERS.format(consultant=consultant, newCity=pointCity,
                                                             newGroup=pointName),

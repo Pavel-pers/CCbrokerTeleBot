@@ -59,10 +59,13 @@ if __name__ == "__main__":
     dbConn.commit()
 
     dbCurr.execute("""CREATE TABLE IF NOT EXISTS ClosedTasks(
-        topicId INTEGER PRIMARY KEY,
+        topicId INTEGER,
         clientId INTEGER,
         closeTime INTEGER
-    );""")
+    );
+    CREATE INDEX topic_index ON ClosedTasks(topicId);
+    CREATE INDEX clients_index ON ClosedTasks(clientId);
+    """)
     dbConn.commit()
 
     print("done")
@@ -486,18 +489,29 @@ def getTaskByTopic(topicId, loop: SqlLoop = mainSqlLoop):
 
 
 # closed tasks
-def addNewClosedTask(clientId, topicId, closeTime, loop: SqlLoop = mainSqlLoop):
+def addNewClosedTask(clientId, topicId, closeTime=None, loop: SqlLoop = mainSqlLoop):
+    if closeTime is None:
+        closeTime = int(time.time())
     addComm = (
-    'INSERT INTO ClosedTasks (clientId, topicId, closeTime) VALUES (?, ?, ?)', (clientId, topicId, closeTime))
+        'INSERT INTO ClosedTasks (clientId, topicId, closeTime) VALUES (?, ?, ?)', (clientId, topicId, closeTime))
     task = loop.addTask(addComm, lambda dbCur: dbConn.commit())
 
 
 def getClosedTaskByTopicId(topicId, loop: SqlLoop = mainSqlLoop):
     getComm = ('SELECT * FROM ClosedTasks WHERE topicId=?', (topicId,))
     task = loop.addTask(getComm, lambda dbCur: dbCur.fetchone())
-    info = task.wait()
-    return info[0] if info else None
+    return task.wait()
 
+
+def getClosedTaskByClientId(clientId, loop: SqlLoop = mainSqlLoop):
+    getComm = ('SELECT * FROM ClosedTasks WHERE clientId=?', (clientId,))
+    task = loop.addTask(getComm, lambda dbCur: dbCur.fetchone())
+    return task.wait()
+
+
+def deleteClosedTaskByTopicId(topicId, loop: SqlLoop = mainSqlLoop):
+    delComm = ('DELETE FROM ClosedTasks WHERE topicId=?', (topicId,))
+    task = loop.addTask(delComm, lambda dbCur: dbConn.commit())
 
 
 if __name__ == '__main__' and len(sys_argv) > 1 and sys_argv[1] == '-t':

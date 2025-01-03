@@ -5,7 +5,8 @@ from handlers import threadWorker
 from handlers.decorators import photoGrouping, processOnce
 from handlers.pointCommands import pendingPermitions
 from locLibs import simpleClasses, dbFunc, simpleTools, botTools
-from constants import Config, Replicas
+from locLibs import reminders
+from constants import Config, Replicas, Emoji
 
 FORUM_CHAT = Config.FORUM_CHAT
 
@@ -78,17 +79,47 @@ class WatchersHandler(simpleClasses.Handlers):
 
     # - task support
     #  - task in process
-    def topicSupport(self, msg: telebot.types.Message):
-        topicId = msg.message_thread_id
-        taskInfo = dbFunc.getTaskByTopic(topicId)
-        if taskInfo is None:
-            self.bot.send_message(msg.chat.id, "sorry not found", message_thread_id=topicId)
+    def closedTopicSupport(self, msg: telebot.types.Message, clientId: int):
+        if msg.text == '/close':
+            self.bot.send_message(clientId, Replicas.END_OF_REFLECTION_CLIENT_SIDE)
+            dbFunc.deleteClosedTaskByTopicId(msg.message_thread_id)
+            self.bot.edit_forum_topic(Config.FORUM_CHAT, msg.message_thread_id, icon_custom_emoji_id=Emoji.CLOSED_TASK)
             return
 
-        clientId = taskInfo[0]
-        redirectCallbacks = botTools.redirectMsg(msg, "sent by admin")
-        for redir_func in redirectCallbacks:
+        msgRedirection = botTools.redirectMsg(msg, Replicas.FROM_ADMIN_MESSAGE, parse_mode='HTML')
+        for f in msgRedirection:
+            f(clientId, None)
+
+    def openTopicSupport(self, msg: telebot.types.Message, clientId: int, groupId: int, postId: int):
+        if msg.text == '/close':
+            reminders.delReminder(groupId, clientId)
+            botTools.endFrorward(msg.message_thread_id, clientId)
+            botTools.endTask(clientId)
+            self.bot.send_message(groupId, reply_to_message_id=postId, text=Replicas.END_OF_REFLRECTION_CONSULTANT_SIDE)
+            return
+
+        msgRedirection = botTools.redirectMsg(msg, Replicas.FROM_ADMIN_MESSAGE, parse_mode='HTML')
+        for redir_func in msgRedirection:
             redir_func(clientId, None)
+
+        redirectProcess = botTools.redirectMsg(msg, Replicas.FROM_ADMIN_MESSAGE, parse_mode='HTML')
+        for cb in redirectProcess:
+            cb(groupId, postId)
+
+    def topicSupport(self, msg: telebot.types.Message):
+        topicId = msg.message_thread_id
+        openTaskInfo = dbFunc.getTaskByTopic(topicId)
+
+        if openTaskInfo is None:
+            closedTaskInfo = dbFunc.getClosedTaskByTopicId(topicId)
+            if closedTaskInfo is None:
+                self.bot.send_message(msg.chat.id, Replicas.NOT_FOUND_REFLECTION, message_thread_id=topicId)
+                return
+
+            self.closedTopicSupport(msg, closedTaskInfo[1])
+        else:
+            self.openTopicSupport(msg, openTaskInfo[0], openTaskInfo[1], openTaskInfo[2])
+    # ? client side in taskSupport.py
 
 
 handlers = WatchersHandler()
