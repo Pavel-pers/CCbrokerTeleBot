@@ -10,7 +10,7 @@ from constants import Replicas, Config
 def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: bool = False):
     pool = threadWorker.PoolHandlers(1, botLogger, ignoreErrs, lambda *args: 0, handler_name="ConsultantHandler")
 
-    @bot.chat_member_handler(func=lambda message: botTools.is_new_user_event(message))
+    @bot.chat_member_handler(func=lambda event: event.chat.type == "supergroup" and botTools.is_new_user_event(event))
     @pool.handlerDecorator
     def welcome_consultant(event: telebot.types.ChatMemberUpdated):
         new_user_id = event.new_chat_member.user.id
@@ -32,7 +32,7 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: boo
         bot.revoke_chat_invite_link(event.chat.id, invite_link)
         dbFunc.addNewConsultant(new_user_id, link_info, event.chat.id)
 
-    @bot.message_handler(commands=['invite', 'add_consultant'])
+    @bot.message_handler(commands=['invite', 'add_consultant'], func=lambda event: event.chat.type == "supergroup")
     @pool.handlerDecorator
     def add_consultant(msg: telebot.types.Message):
         if not botTools.isFromAdmin(msg):
@@ -53,7 +53,8 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: boo
             print(channel_link)
             bot.send_message(msg.chat.id, Replicas.GENERATE_LINK.format(channel_link, invite_link), parse_mode='HTML')
 
-    @bot.message_handler(commands=['set_name'], func=botTools.isMsgFromPoint)
+    @bot.message_handler(commands=['set_name'],
+                         func=lambda event: event.chat.type == "supergroup" and botTools.isMsgFromPoint(event))
     @pool.handlerDecorator
     def setNameConsultant(msg: telebot.types.Message):
         replyId = None
