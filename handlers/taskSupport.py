@@ -3,16 +3,15 @@ import logging
 
 from constants import Config, Inline, Replicas, UserStages
 from locLibs import dbFunc, simpleClasses, botTools, simpleTools, reminders
-from handlers.inlineCallBacks import addCbData
+from handlers.inlineCallBacks import addCbData, CbDataCC
 from handlers.decorators import photoGrouping, processOnce
 from handlers import threadWorker
 
 
-def handleClientSide(msg: telebot.types.Message, taskInfo):
-    client, group, postId = taskInfo[:3]
+def handleClientSide(msg: telebot.types.Message, task: dbFunc.Task):
     cbList = botTools.redirectMsg(msg, Replicas.CLENT_ANSWER)
-    botTools.addComment(group, postId, cbList)
-    botTools.forwardMessage(taskInfo[3], msg)
+    botTools.addComment(task.groupId, task.postId, cbList)
+    botTools.forwardMessage(task.topicId, msg)
 
 
 class ClientHandlers(simpleClasses.Handlers):
@@ -55,19 +54,17 @@ class ClientHandlers(simpleClasses.Handlers):
         cancelBtn = telebot.types.InlineKeyboardButton(Replicas.CANCEL_BUTTON, callback_data=Inline.POST_CANCEL)
         continueBtn = telebot.types.InlineKeyboardButton(Replicas.CONTINUE_BUTTON, callback_data=Inline.POST_CONTINUE)
         inlineKeyboard.add(cancelBtn, continueBtn)
-        pointInfo = dbFunc.getPointById(client[3])
-        pointName = pointInfo[2]
-        workH = pointInfo[3]
+        pointInfo = dbFunc.getPointById(client.bind)
 
-        dist = simpleTools.distToTimeSgm(workH)
-        confirmText = Replicas.gen_confirm_text(pointInfo[1], pointName, dist)
+        dist = simpleTools.distToTimeSgm(pointInfo.workH)
+        confirmText = Replicas.gen_confirm_text(pointInfo.city, pointInfo.name, dist)
         reply = self.bot.send_message(msg.chat.id, confirmText, reply_markup=inlineKeyboard, parse_mode='HTML')
 
         self.bot.register_next_step_handler_by_chat_id(
             reply.chat.id, self.answerInlineProducer, reply.id)  # reg waiting
 
         shrinkedMsg = simpleClasses.MsgContent(msg)
-        addCbData((reply.chat.id, None), (client, pointName, shrinkedMsg))
+        addCbData((reply.chat.id, None), CbDataCC(client, pointInfo.name, shrinkedMsg))
 
     #   -client add message to existing task
 
@@ -79,8 +76,8 @@ class ClientHandlers(simpleClasses.Handlers):
             endTaskInfo = dbFunc.getClosedTaskByClientId(msg.from_user.id)
             if endTaskInfo is None:
                 self.handleStartConversation(msg)
-            else: # * watcher reflection
-                topicId = endTaskInfo[0]
+            else:  # * watcher reflection
+                topicId = endTaskInfo.topicId
                 botTools.forwardMessage(topicId, msg)
         else:
             handleClientSide(msg, taskInfo)
@@ -92,12 +89,11 @@ class ConsultantHandlers(simpleClasses.Handlers):
         super().__init__()
 
     #   -redirect functions
-    def redirectClientGen(self, msg: telebot.types.Message, client, consultantName, topicId):
+    def redirectClientGen(self, msg: telebot.types.Message, client: dbFunc.Client, consultantName: str, topicId: int):
         msg: telebot.types.Message
 
         postMsg = msg.reply_to_message
-        clientId, clientName, clientCity, clientBind = client
-        self.bot.send_message(clientId, Replicas.ON_CLIENT_REDIRECTION)
+        self.bot.send_message(client.id, Replicas.ON_CLIENT_REDIRECTION)
 
         answersList: list = dbFunc.getRegCities()
         answersList.append('/cancel')
@@ -108,53 +104,54 @@ class ConsultantHandlers(simpleClasses.Handlers):
                                                         Replicas.SAY_ABOUT_CANCEL + '\n\n' + Replicas.ASK_ABOUT_REDIRECT_CITY,
                                                         answersList, False)
             if cityIndex == len(answersList) - 1:
-                self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+                self.bot.send_message(client.id, Replicas.ON_REDIRECTTION_STOP)
                 reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
                 yield reply, True
 
             newCity = answersList[cityIndex]
 
             pointList = dbFunc.getPointsByCity(newCity)
-            if clientCity == newCity:
-                pointList.remove(next(i for i in pointList if i[0] == postMsg.chat.id))
+            if client.city == newCity:
+                pointList.remove(next(i for i in pointList if i.id == postMsg.chat.id))
 
             if len(pointList) == 0:
                 self.bot.reply_to(postMsg, Replicas.NO_SUITABLE_POINTS)
 
-        answersList = list(map(lambda x: x[2], pointList))
+        answersList = list(map(lambda x: x.name, pointList))
         answersList.append('/cancel')
 
         pointIndx = yield from botTools.askToChoice(msg.chat.id, postMsg.id, None, Replicas.ASK_ABOUT_REDIRECT_POINT,
                                                     answersList, False)
         if pointIndx == len(answersList) - 1:
-            self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+            self.bot.send_message(client.id, Replicas.ON_REDIRECTTION_STOP)
             reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
             yield reply, True
 
         pointName = answersList[pointIndx]
-        newPoint = pointList[pointIndx]
+        newBind = pointList[pointIndx]
 
         reply = self.bot.reply_to(postMsg, Replicas.ASK_ABOUT_REDIRECT_TEXT)
         msg = yield reply, False  # waiting for post msg
 
         if msg.text == '/cancel':
-            self.bot.send_message(clientId, Replicas.ON_REDIRECTTION_STOP)
+            self.bot.send_message(client.id, Replicas.ON_REDIRECTTION_STOP)
             reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
             yield reply, True
 
-        self.bot.send_message(clientId, Replicas.SUCSESS_REDIRECT)
+        self.bot.send_message(client.id, Replicas.SUCSESS_REDIRECT)
         reply = self.bot.reply_to(postMsg, Replicas.SUCSESS_REDIRECT)
 
-        dbFunc.changeClientBind(clientId, newCity, newPoint[0])
-        newClient = (client[0], client[1], newCity, newPoint[0])
+        dbFunc.changeClientBind(client.id, newCity, newBind.id)
+        newClient = dbFunc.Client(client.id, client.name, newCity, newBind.id)
         newCh, newPostId = botTools.addNewTask(newClient, msg)
+
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)
         botTools.forwardRedir(topicId, consultantName, newCity, pointName, msg)
-        reminders.delReminder(msg.chat.id, clientId)
-        reminders.regReminder(newPoint[0], clientId, clientName)
+        reminders.delReminder(msg.chat.id, client.id)
+        reminders.regReminder(newBind.id, client.id, client.name)
         yield reply, True
 
-    def redirectClient(self, msg: telebot.types.Message, clientId, gen):
+    def redirectClient(self, msg: telebot.types.Message, clientId: int, gen):
         post = msg.reply_to_message
         reply, stop = gen.send(msg)
         if not stop:
@@ -190,47 +187,46 @@ class ConsultantHandlers(simpleClasses.Handlers):
             self.bot.reply_to(postMsg, Replicas.ON_NOT_SUPPORTED_TASK)
             return
 
-        clientId = task[0]
-        clientState = self.bot.get_state(clientId)
+        clientState = self.bot.get_state(task.clientId)
         if clientState == UserStages.CLIENT_REDIR:
             return
 
         if msg.text == '/close':
-            reminders.delReminder(replyChat, clientId)
-            botTools.forwardMessage(task[3], msg)
-            botTools.endFrorward(task[3], clientId)
+            reminders.delReminder(replyChat, task.clientId)
+            botTools.forwardMessage(task.topicId, msg)
+            botTools.endFrorward(task.topicId, task.clientId)
 
-            botTools.endTask(clientId)
+            botTools.endTask(task.clientId)
         elif msg.text == '/ban':
-            reminders.delReminder(replyChat, clientId)
-            botTools.forwardMessage(task[3], msg)
-            botTools.endFrorward(task[3], clientId)
+            reminders.delReminder(replyChat, task.clientId)
+            botTools.forwardMessage(task.topicId, msg)
+            botTools.endFrorward(task.topicId, task.clientId)
 
-            dbFunc.delTask(clientId)
-            dbFunc.delClient(clientId)
-            self.bot.send_message(clientId, Replicas.BANNED_TEXT)
+            dbFunc.delTask(task.clientId)
+            dbFunc.delClient(task.clientId)
+            self.bot.send_message(task.clientId, Replicas.BANNED_TEXT)
             self.bot.reply_to(postMsg, 'banned')
-            botTools.blockUser(clientId)
+            botTools.blockUser(task.clientId)
         elif msg.text == '/redirect':
-            self.bot.set_state(clientId, UserStages.CLIENT_REDIR)
+            self.bot.set_state(task.clientId, UserStages.CLIENT_REDIR)
 
-            client = dbFunc.getClientById(clientId)
-            redirProc = self.redirectClientGen(msg, client, consultant[1], task[3])
+            client = dbFunc.getClientById(task.clientId)
+            redirProc = self.redirectClientGen(msg, client, consultant.name, task.topicId)
             reply, stop = next(redirProc)
             if not stop:
                 self.logger.debug('register redirect sess on: ' + str(replyChat) + '-' + str(replyId))
-                self.bot.register_for_reply(postMsg, self.redirProducer, clientId, redirProc)
+                self.bot.register_for_reply(postMsg, self.redirProducer, task.clientId, redirProc)
             else:
-                self.bot.delete_state(clientId)
-                self.bot.set_state(clientId, UserStages.CLIENT_IN_CONVERSATION)
+                self.bot.delete_state(task.clientId)
+                self.bot.set_state(task.clientId, UserStages.CLIENT_IN_CONVERSATION)
         else:
-            reminders.markReminder(replyChat, clientId)
-            botTools.forwardMessage(task[3], msg)
-            dbFunc.addNewActive(clientId, consultant[0])
-
-            cbList = botTools.redirectMsg(msg, Replicas.CONSULTANT_ANSWER + consultant[1])
+            reminders.markReminder(replyChat, task.clientId)
+            botTools.forwardMessage(task.topicId, msg)
+            dbFunc.addNewActive(task.clientId, consultant.id)
+            cbList = botTools.redirectMsg(msg, Replicas.CONSULTANT_ANSWER.format(consultant=consultant.name),
+                                          parse_mode="HTML")
             for cb in cbList:
-                cb(clientId, None)
+                cb(task.clientId, None)
 
 
 handlersCo = ConsultantHandlers()  # using cos = client side

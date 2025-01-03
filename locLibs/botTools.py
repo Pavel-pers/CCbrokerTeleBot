@@ -6,7 +6,7 @@ import time
 
 from locLibs import dbFunc
 from locLibs import simpleClasses
-from handlers.inlineCallBacks import addCbData
+from handlers.inlineCallBacks import addCbData, CbDataRate
 from constants import Emoji, Inline, Config, UserStages, Replicas
 
 bot: simpleClasses.TeleBotBanF
@@ -35,15 +35,14 @@ def isMsgFromPoint(msg: telebot.types.Message) -> bool:
 
 
 def linkToTopic(threadId: int):
-    return "https://t.me/" + str(Config.FORUM_CHAT)[4:] + "/" + str(threadId)
+    return "https://t.me/c/" + str(Config.FORUM_CHAT)[4:] + "/" + str(threadId)
 
 
 def redirectMsg(msg: telebot.types.Message, header, **kwargs) -> list[
-    Callable[[int, int | None], telebot.types.Message]
+    Callable[[int, int | None], telebot.types.Message | list[telebot.types.Message]]
 ]:
     """
     callback generator
-    :param parse_mode: parse mode in send_message param
     :param msg: message to redirect
     :param header: prefix text which will be written to redirect message
     :return: tuple of sending functions, which takes params: send_to, reply_to
@@ -83,10 +82,12 @@ def redirectMsg(msg: telebot.types.Message, header, **kwargs) -> list[
         photos[0].caption = header + '\n' + (photos[0].caption or '')
         for kw, arg in kwargs.items():
             setattr(photos[0], kw, arg)  # TODO test it
-        return (lambda ch, repl: bot.send_media_group(ch, photos, reply_to_message_id=repl, ),)
+        return [lambda ch, repl: bot.send_media_group(ch, photos, reply_to_message_id=repl, ), ]
+
 
 def isFromAdmin(msg: telebot.types.Message) -> bool:
     return bot.get_chat_member(msg.chat.id, msg.from_user.id).status in ['administrator', 'creator']
+
 
 def waitRelpyFromAdmin(reply, stopReg) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -98,6 +99,7 @@ def waitRelpyFromAdmin(reply, stopReg) -> Generator[
         reply = bot.send_message(msg.chat.id, Replicas.NEED_ADMIN)
         msg = yield reply, False
     return msg
+
 
 def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -112,6 +114,7 @@ def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> G
 
     ansIndex = yield from askToChoice(chatId, None, reply_mrkp, header, answerList, onlyAdmin)
     return ansIndex
+
 
 def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool) -> Generator[
     tuple[telebot.types.Message, bool],
@@ -137,15 +140,19 @@ def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: boo
 
     return int(answer) - 1 if answer.isdigit() else answerList.index(answer)
 
+
 def isPostReply(msg: telebot.types.Message) -> bool:
     return msg.reply_to_message is not None and msg.reply_to_message.from_user.id == 777000 and isMsgFromPoint(msg)
+
 
 # task funcs
 pendingPostMsgs = simpleClasses.PendingMessages()  # messages which waiting telegramm repeat
 
+
 #   -comments func
 def processComments(oldChat, oldReply, newChat, newReply):
     pendingPostMsgs.processCB(oldChat, oldReply, newChat, newReply)
+
 
 def addComment(chatId, postId, msgFuncs):
     if pendingPostMsgs.isWaiting(chatId, postId):
@@ -155,11 +162,11 @@ def addComment(chatId, postId, msgFuncs):
         for cb in msgFuncs:
             cb(chatId, postId)
 
+
 #   - post message, save in DB
-def addNewTask(client, postMsg: telebot.types.Message):
-    clientId, clientName, clientCity, clientBind = client
-    clientChannel = bot.get_chat(clientBind).linked_chat_id
-    header = Replicas.NEW_TASK.format(name=clientName)
+def addNewTask(client: dbFunc.Client, postMsg: telebot.types.Message):
+    clientChannel = bot.get_chat(client.bind).linked_chat_id
+    header = Replicas.NEW_TASK.format(name=client.name)
 
     cbList = redirectMsg(postMsg, header)
     post = cbList[0](clientChannel, None)
@@ -168,6 +175,7 @@ def addNewTask(client, postMsg: telebot.types.Message):
     for i in cbList[1:]:
         pendingPostMsgs.add(clientChannel, replyId, i)
     return clientChannel, replyId
+
 
 #   -delete data in DB and ask client
 def endTask(clientId):
@@ -178,21 +186,17 @@ def endTask(clientId):
     reply = bot.send_message(clientId, Replicas.CLOSE_TASK, reply_markup=inline)
 
     task = dbFunc.getTaskByClientId(clientId)
-    groupId = task[1]
-    postId = task[2]
-    birthTime = task[6]
     bonus = False
-    if int(time.time()) - birthTime < Config.BONUS_TIME:
-        bot.send_message(groupId, Replicas.QUICK_CLOSE_TASK, reply_to_message_id=postId)
+    if int(time.time()) - task.birthTime < Config.BONUS_TIME:
+        bot.send_message(task.groupId, Replicas.QUICK_CLOSE_TASK, reply_to_message_id=task.postId)
         bonus = True
     else:
-        bot.send_message(groupId, Replicas.GENERAL_CLOSE_TASK, reply_to_message_id=postId)
+        bot.send_message(task.groupId, Replicas.GENERAL_CLOSE_TASK, reply_to_message_id=task.postId)
 
-    activeIds = task[4].split(';')[:-1]
-    topicId = task[3]
-    addCbData((clientId, reply.message_id), (activeIds, groupId, topicId, bonus))
+    addCbData((clientId, reply.message_id), CbDataRate(task.activeIds, task.groupId, task.topicId, bonus))
     bot.delete_state(clientId)
     dbFunc.delTask(clientId)
+
 
 # forwarding func
 #   -open task, forum
@@ -206,6 +210,7 @@ def maybeTopicNotExistsDecorator(func):
 
     return wrapper
 
+
 def startFrorward(clientCity: str, clientName: str, pointName):
     today_date = datetime.today().strftime('%m/%d %H:%M')
     topic = bot.create_forum_topic(Config.FORUM_CHAT, f'{clientCity} [{today_date}] "{clientName}"',
@@ -213,6 +218,7 @@ def startFrorward(clientCity: str, clientName: str, pointName):
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_OPEN_WATCHERS.format(client=clientName, chat=pointName),
                      message_thread_id=topic.message_thread_id)
     return topic.message_thread_id
+
 
 @maybeTopicNotExistsDecorator
 def endFrorward(threadId, clientId):
@@ -224,12 +230,14 @@ def endFrorward(threadId, clientId):
                      message_thread_id=threadId, reply_markup=inline_to_talk)
     bot.edit_forum_topic(Config.FORUM_CHAT, threadId, icon_custom_emoji_id=Emoji.CLOSED_TASK)
 
+
 @maybeTopicNotExistsDecorator
 def forwardRate(threadId, rate):
     bot.send_message(Config.FORUM_CHAT, Replicas.TASK_RATE_TOPIC_WATCHERS + str(rate), message_thread_id=threadId)
     bot.send_message(Config.FORUM_CHAT,
                      Replicas.TASK_RATE_GENERAL_WATCHERS + str(rate) + '\n' + Replicas.LINK_TO_TOPIC.format(
                          linkToTopic(threadId)), parse_mode='HTML')  # TODO make link to topic
+
 
 @maybeTopicNotExistsDecorator
 def forwardMessage(threadId: int, msg: telebot.types.Message):
@@ -238,6 +246,7 @@ def forwardMessage(threadId: int, msg: telebot.types.Message):
         bot.forward_messages(Config.FORUM_CHAT, msg.chat.id, msgIds, message_thread_id=threadId)
     else:
         bot.forward_message(Config.FORUM_CHAT, msg.chat.id, msg.id, message_thread_id=threadId)
+
 
 @maybeTopicNotExistsDecorator
 def forwardRedir(threadId: int, consultant: str, pointCity: str, pointName: str,

@@ -57,7 +57,7 @@ class Handlers(simpleClasses.Handlers):
             dbFunc.updatePoint(msg.chat.id, pointCity, pointName, workH)
         else:
             dbFunc.addNewPoint(msg.chat.id, pointCity, pointName, workH)
-        reply = self.bot.send_message(msg.chat.id, Replicas.ON_REGISTRATION_POINT)
+        reply = self.bot.send_message(msg.chat.id, Replicas.ON_REGISTRATION_POINT, parse_mode="HTML")
         yield reply, True
 
     def regPointProducer(self, msg, generator):

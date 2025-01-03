@@ -116,10 +116,10 @@ class WatchersHandler(simpleClasses.Handlers):
                 self.bot.send_message(msg.chat.id, Replicas.NOT_FOUND_REFLECTION, message_thread_id=topicId)
                 return
 
-            self.closedTopicSupport(msg, closedTaskInfo[1])
+            self.closedTopicSupport(msg, closedTaskInfo.clientId)
         else:
-            self.openTopicSupport(msg, openTaskInfo[0], openTaskInfo[1], openTaskInfo[2])
-    # ? client side in taskSupport.py
+            self.openTopicSupport(msg, openTaskInfo.clientId, openTaskInfo.groupId, openTaskInfo.postId)
+    # * client side in taskSupport.py
 
 
 handlers = WatchersHandler()

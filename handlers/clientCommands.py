@@ -11,34 +11,32 @@ from constants import Replicas, Emoji
 
 class Handlers(simpleClasses.Handlers):
     # reg client functions
-    def setupClientGen(self, msg: telebot.types.Message, client=(None, None, None)) -> Generator[
-        tuple[telebot.types.Message, bool],
-        telebot.types.Message,
-        None
-    ]:
-        if client[0] is None:
+    def setupClientGen(self, msg: telebot.types.Message, client_name=None, client_city=None, client_bind=None) -> \
+            Generator[
+                tuple[telebot.types.Message, bool],
+                telebot.types.Message,
+                None
+            ]:
+        if client_name is None:
             reply = self.bot.send_message(msg.chat.id, Replicas.ASK_NAME_CLIENT)
             msg: telebot.types.Message = yield reply, False
-            client = (msg.text, client[1], client[2])
+            client_name = msg.text
             self.bot.send_message(msg.chat.id, Replicas.ON_GET_NAME + ', ' + msg.text + ' ' + Emoji.HANDSHAKE)
-        if client[1] is None:
+        if client_city is None:
             cityList = dbFunc.getRegCities()
             cityIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_CITY_CLIENT, cityList, False)
 
-            clientCity = cityList[cityIndex]
-            client = (client[0], clientCity, client[2])
-        else:
-            clientCity = client[1]
+            client_city = cityList[cityIndex]
 
-        if client[2] is None:
-            pointList = dbFunc.getPointsByCity(clientCity)
+        if client_bind is None:
+            pointList = dbFunc.getPointsByCity(client_city)
             pointIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_POINT_CLIENT,
-                                                             list(map(lambda x: x[2], pointList)), False)
-            clientBindId = pointList[pointIndex][0]
-            client = (client[0], client[1], clientBindId)
+                                                             list(map(lambda x: x.name, pointList)), False)
+            client_bind = pointList[pointIndex].id
 
+        client = dbFunc.Client(msg.from_user.id, client_name, client_city, client_bind)
         self.logger.debug('saving client:' + str((msg.from_user.id, client)))
-        dbFunc.addNewClient(msg.from_user.id, *client)
+        dbFunc.addNewClient(client)
 
         reply = self.bot.send_message(msg.chat.id, Replicas.ON_REGISTRATION_CLIENT,
                                       reply_markup=telebot.types.ReplyKeyboardRemove())
@@ -66,7 +64,7 @@ class Handlers(simpleClasses.Handlers):
             self.bot.send_message(msg.chat.id, Replicas.WELCOME_CLIENT)
             return
 
-        replaceProc = self.setupClientGen(msg, (client[1], None, None))
+        replaceProc = self.setupClientGen(msg, client_name=client.name)
         reply, stopReg = next(replaceProc)
         if not stopReg:
             self.bot.register_next_step_handler(reply, self.setupProducer, replaceProc)
@@ -77,12 +75,13 @@ class Handlers(simpleClasses.Handlers):
             self.bot.send_message(msg.chat.id, Replicas.WELCOME_CLIENT)
             return
 
-        renameProc = self.setupClientGen(msg, (None, client[2], client[3]))
+        renameProc = self.setupClientGen(msg, client_city=client.city, client_bind=client.bind)
         reply, stopReg = next(renameProc)
         if not stopReg:
             self.bot.register_next_step_handler(reply, self.setupProducer, renameProc)
 
-    # welcome client function
+            # welcome client function
+
     def welcome(self, msg: telebot.types.Message):
         self.bot.send_message(msg.chat.id, Replicas.WELCOME_CLIENT)
 

@@ -1,10 +1,12 @@
+import dataclasses
+
 import telebot
 import logging
 import queue
 
 from constants import Inline, Config, UserStages, Replicas, Emoji
 from locLibs import dbFunc, botTools, reminders
-from locLibs.simpleClasses import DataForCallBacks, Handlers
+from locLibs.simpleClasses import DataForCallBacks, Handlers, MsgContent
 from handlers import threadWorker
 
 dataForCb = DataForCallBacks()
@@ -15,6 +17,21 @@ def addCbData(key, data):
     dataForCb.add(key, data, Config.INLINE_DELAY)
 
 
+@dataclasses.dataclass
+class CbDataCC:
+    client: dbFunc.Client
+    pointName: str
+    msgContent: MsgContent | telebot.types.Message
+
+
+@dataclasses.dataclass
+class CbDataRate:
+    activeIds: list[int]
+    groupId: int
+    topicId: int
+    isBonus: bool
+
+
 class CbHandlers(Handlers):
     def __init__(self):
         super().__init__()
@@ -22,7 +39,7 @@ class CbHandlers(Handlers):
     def postCancelContinue(self, call: telebot.types.CallbackQuery):
         chatId = call.message.chat.id
         msgId = call.message.id
-        cbData = dataForCb.get((chatId, None))
+        cbData: CbDataCC | None = dataForCb.get((chatId, None))
         self.logger.debug('cancel/continue callback: saved data: ' + str(cbData))
         self.bot.clear_step_handler_by_chat_id(chatId)
 
@@ -38,14 +55,15 @@ class CbHandlers(Handlers):
                 self.bot.send_message(chatId, Replicas.ASK_TO_REPEAT_CLIENT)
                 self.bot.edit_message_text(call.message.text, chatId, msgId)
             else:  # client starts the conversation
-                client, pointName, msg = cbData
-                self.bot.set_state(client[0], UserStages.CLIENT_IN_CONVERSATION)
+                client, pointName, msg = cbData.client, cbData.pointName, cbData.msgContent
+                self.bot.set_state(client.id, UserStages.CLIENT_IN_CONVERSATION)
                 self.bot.edit_message_text(Replicas.ON_TASK_CONTINUE, chatId, msgId)
+
                 channel, postId = botTools.addNewTask(client, msg)
-                topicId = botTools.startFrorward(client[2], client[1], pointName)
+                topicId = botTools.startFrorward(client.city, client.name, pointName)
                 botTools.forwardMessage(topicId, msg)
-                dbFunc.addNewTask(client[0], channel, postId, topicId)
-                reminders.regReminder(client[3], client[0], client[1])
+                dbFunc.addNewTask(client.id, channel, postId, topicId)
+                reminders.regReminder(client.bind, client.id, client.name)
         else:
             raise 'inline callback data error'
 
@@ -53,20 +71,19 @@ class CbHandlers(Handlers):
         rate = int(call.data.split(':')[1])
         chatId = call.message.chat.id
         messageId = call.message.id
-        cbData = dataForCb.get((chatId, messageId))
+        cbData: CbDataRate = dataForCb.get((chatId, messageId))
         self.bot.edit_message_text(Replicas.THANKS_FOR_RATE, chatId, messageId)
 
         if cbData is None:
             self.logger.warning('client rate deleted post')
             return
 
-        activeIds, pointId, topicId, bonus = cbData
         self.logger.debug('rate_inline_callback info:' + str(cbData))
-        botTools.forwardRate(topicId, rate)
+        botTools.forwardRate(cbData.topicId, rate)
 
-        for consultant in activeIds:
-            dbFunc.addRateConsultant(consultant, rate, bonus)
-        dbFunc.addRatePoint(pointId, rate)
+        for consultant in cbData.activeIds:
+            dbFunc.addRateConsultant(consultant, rate, cbData.isBonus)
+        dbFunc.addRatePoint(cbData.groupId, rate)
 
     def watcherStartTalk(self, call: telebot.types.CallbackQuery):
         clientId = int(call.data[len(Inline.WATCHERS_TALK_PREF):])
@@ -76,6 +93,7 @@ class CbHandlers(Handlers):
         dbFunc.addNewClosedTask(clientId=clientId, topicId=topicId)
         self.bot.edit_message_text(Replicas.EDIT_ON_REFLECTION, chatId, msgId)
         self.bot.edit_forum_topic(Config.FORUM_CHAT, topicId, icon_custom_emoji_id=Emoji.VIEWING_TASK)
+
 
 handlers = CbHandlers()
 
@@ -102,5 +120,3 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErr=False
             handlers.watcherStartTalk
         )
     )
-
-

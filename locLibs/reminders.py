@@ -114,7 +114,7 @@ def startReminders(bot: telebot.TeleBot, logger: logging.Logger):
     dbFunc.iterateTable([lambda row: addPoint(row[0], row[3])], 'Points').wait()
     taskList = dbFunc.getAllData('Tasks', ('groupId', 'clientId', 'lastActiveTime'))
     for pointId, clientId, startTime in taskList:
-        clientName = dbFunc.getClientById(clientId)[1]
+        clientName = dbFunc.getClientById(clientId).name
         regReminder(pointId, clientId, clientName, startTime)
     # start main thread
     workerTh = threading.Thread(target=worker, args=(bot, logger, remindersDict), daemon=True, name="remindersWorker")

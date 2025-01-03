@@ -46,7 +46,8 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: boo
 
             botLogger.debug("send link for " + str(msg.chat.type))
             invite_link = bot.create_chat_invite_link(msg.chat.id,
-                                                      Config.INVITE_LINK_PREFIX + name).invite_link  # TODO test on same names
+                                                      Config.INVITE_LINK_PREFIX + name).invite_link
+            # TODO test on same names
             channel_id = bot.get_chat(msg.chat.id).linked_chat_id
             channel_link = bot.get_chat(channel_id).invite_link
             print(channel_link)
