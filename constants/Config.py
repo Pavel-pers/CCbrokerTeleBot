@@ -8,3 +8,5 @@ FORUM_CHAT = -1002176286003
 INVITE_LINK_PREFIX = "invite:"
 ALLOWED_UPDATES = ['message', 'edited_message', 'channel_post', 'my_chat_member', 'chat_member', 'chat_join_request',
                    'callback_query']
+SUBSCRIBE_MARK_DICT: dict[str, int] = {'Иркутск': 1, 'Улан-Удэ': 2, 'Новосибирск': 3}
+CHANNEL_FILTER: dict = {}

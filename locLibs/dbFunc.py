@@ -5,6 +5,9 @@ import sqlite3
 import threading
 import queue
 import logging
+import typing
+
+from constants import Config
 from locLibs import reminders, dataCaching
 import time
 from sys import argv as sys_argv
@@ -218,6 +221,42 @@ def delRegCity(city):
                 writer.writerow(row)
 
 
+def iterateSubscribers(filter: typing.Callable[[list[int]], bool], function: typing.Callable[[int], bool]) -> int:
+    deferredDels = set()
+    with open("data/subscribers.deffer") as f:
+        for indf in f:
+            deferredDels.add(int(indf))
+
+    subscribers = list()  # ? maybe make reserve file will be better solve
+    with open("data/subscribers.data", 'r') as fr:
+        for l in fr:
+            indf, marks = l.split(':')
+
+            indf = int(indf)
+            marks = list(map(int, marks.split(';')))
+
+            if indf not in deferredDels:
+                subscribers.append((indf, marks))
+
+    repost_count = 0
+    with open("data/subscribers.data", 'w') as fw:
+        for indf, marks in subscribers:
+            fw.write(str(indf) + ':' + ';'.join(map(str, marks)) + '\n')
+            if filter(marks):
+                repost_count += function(indf)
+    return repost_count
+
+
+def addSubscriber(indf: int, marks: list[int]):
+    with open("data/subscribers.data", 'a') as fr:
+        fr.write(str(indf) + ':' + ';'.join(map(str, marks)) + '\n')
+
+
+def delSubscriber(indf: int):
+    with open("data/subscribers.deffer", 'a') as fr:
+        fr.write(str(indf) + '\n')
+
+
 # -sqlite functions
 def sqlWorker(workQueue: queue.Queue, finishEvent: threading.Event):
     dbCur = dbConn.cursor()
@@ -417,6 +456,7 @@ def addRatePoint(chatId, newRate, loop: SqlLoop = mainSqlLoop) -> None:
 def addNewClient(client: Client, loop: SqlLoop = mainSqlLoop) -> None:
     def onProc(dbCur):
         if dbCur.fetchone() is None:  # create new client
+            addSubscriber(client.id, [Config.SUBSCRIBE_MARK_DICT[client.city]])
             addTask = ('INSERT INTO Clients (id, name, city, bind) VALUES (?, ?, ?, ?)',
                        (client.id, client.name, client.city, client.bind))
             loop.addTask(addTask, lambda dbCur1: dbConn.commit())
