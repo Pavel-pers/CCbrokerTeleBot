@@ -2,10 +2,12 @@ import telebot
 import logging
 
 from constants import Config, Inline, Replicas, UserStages
+from constants.Config import PointType
 from locLibs import dbFunc, simpleClasses, botTools, simpleTools, reminders
 from handlers.inlineCallBacks import addCbData, CbDataCC
 from handlers.decorators import photoGrouping, processOnce
 from handlers import threadWorker
+from locLibs.dbFunc import CityPoints
 
 
 def handleClientSide(msg: telebot.types.Message, task: dbFunc.Task):
@@ -54,7 +56,7 @@ class ClientHandlers(simpleClasses.Handlers):
         cancelBtn = telebot.types.InlineKeyboardButton(Replicas.CANCEL_BUTTON, callback_data=Inline.POST_CANCEL)
         continueBtn = telebot.types.InlineKeyboardButton(Replicas.CONTINUE_BUTTON, callback_data=Inline.POST_CONTINUE)
         inlineKeyboard.add(cancelBtn, continueBtn)
-        pointInfo = dbFunc.getPointById(client.bind)
+        pointInfo = dbFunc.getPointById(client.bind_id)
 
         dist = simpleTools.distToTimeSgm(pointInfo.workH)
         confirmText = Replicas.gen_confirm_text(pointInfo.city, pointInfo.name, dist)
@@ -97,7 +99,7 @@ class ConsultantHandlers(simpleClasses.Handlers):
 
         answersList: list = dbFunc.getRegCities()
         answersList.append('/cancel')
-        pointList = []
+        pointList:list[dbFunc.Point] = []
         newCity = ''
         while not pointList:
             cityIndex = yield from botTools.askToChoice(postMsg.chat.id, postMsg.id, None,
@@ -110,18 +112,18 @@ class ConsultantHandlers(simpleClasses.Handlers):
 
             newCity = answersList[cityIndex]
 
-            pointList = dbFunc.getPointsByCity(newCity)
+            pointList = list(dbFunc.getPointsByCity(newCity))
             if client.city == newCity:
-                pointList.remove(next(i for i in pointList if i.id == postMsg.chat.id))
+                pointList.remove(next(point for point in pointList if point.id == postMsg.chat.id))
 
             if len(pointList) == 0:
                 self.bot.reply_to(postMsg, Replicas.NO_SUITABLE_POINTS)
 
-        answersList = list(map(lambda x: x.name, pointList))
+        answersList = list(map(lambda point: "<b>" + str(point.type) + "</b>:" + point.name, pointList))
         answersList.append('/cancel')
 
         pointIndx = yield from botTools.askToChoice(msg.chat.id, postMsg.id, None, Replicas.ASK_ABOUT_REDIRECT_POINT,
-                                                    answersList, False)
+                                                    answersList, False, parse_mode = 'HTML')
         if pointIndx == len(answersList) - 1:
             self.bot.send_message(client.id, Replicas.ON_REDIRECTTION_STOP)
             reply = self.bot.reply_to(postMsg, Replicas.ON_REDIRECTTION_STOP)
@@ -141,8 +143,8 @@ class ConsultantHandlers(simpleClasses.Handlers):
         self.bot.send_message(client.id, Replicas.SUCSESS_REDIRECT)
         reply = self.bot.reply_to(postMsg, Replicas.SUCSESS_REDIRECT)
 
-        dbFunc.changeClientBind(client.id, newCity, newBind.id)
-        newClient = dbFunc.Client(client.id, client.name, newCity, newBind.id)
+        dbFunc.changeClientBind(client.id, newCity, newBind.type, newBind.id)
+        newClient = dbFunc.Client(client.id, client.name, newCity, newBind.type, newBind.id)
         newCh, newPostId = botTools.addNewTask(newClient, msg)
 
         dbFunc.changeTaskByPost(msg.chat.id, postMsg.id, newCh, newPostId)

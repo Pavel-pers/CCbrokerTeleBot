@@ -49,7 +49,7 @@ class WatchersHandler(simpleClasses.Handlers):
             consultantsList = sorted(consultantsList, key=lambda x: x[0][2][0], reverse=True)
             for consultant, point in consultantsList:
                 consultantId, name, rate, bonus = consultant
-                text = Replicas.CONSULTANT_LEADER.format(tag=simpleTools.genMention(name, consultantId),
+                text = Replicas.CONSULTANT_LEADER.format(tag=botTools.genMention(name, consultantId),
                                                          point_name=point, average=rate[0], count=rate[1], bonus=bonus)
                 consultantsLeaderBoard += '\n' + text
             consultantsLeaderBoard += '\n\n'

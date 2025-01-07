@@ -41,22 +41,32 @@ class Handlers(simpleClasses.Handlers):
         while not simpleTools.workH_pattern.match(msg.text):
             reply = self.bot.send_message(msg.chat.id, Replicas.INCORECT_FORMAT)
             msg = yield from botTools.waitRelpyFromAdmin(reply, False)
-        workH = msg.text
-        start, finish = workH.split('-')
+        workH_local = msg.text
+        start, finish = workH_local.split('-')
         start = simpleTools.timezoneConv(start, pointZone)
         finish = simpleTools.timezoneConv(finish, pointZone)
-        workH = start + '-' + finish
+        workH_global = start + '-' + finish
 
-        reply = self.bot.send_message(msg.chat.id, Replicas.ASK_NAME_POINT)
+        pointsInCity = dbFunc.getPointsByCity(pointCity)
+        avalibaleTypes = [Replicas.SERVICE_STATION]
+        if pointsInCity.retail is None or pointsInCity.retail == msg.chat.id:
+            avalibaleTypes.append(Replicas.RETAIL)
+        if pointsInCity.wholesale is None or pointsInCity.wholesale == msg.chat.id:
+            avalibaleTypes.append(Replicas.WHOLESALE)
+
+        type_index = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_POINT_TYPE, avalibaleTypes, True)
+        pointType = Replicas.POINT_TYPE_DICT[avalibaleTypes[type_index]]
+        reply = self.bot.send_message(msg.chat.id, Replicas.ASK_NAME_POINT, reply_markup=telebot.types.ReplyKeyboardRemove())
         msg = yield from botTools.waitRelpyFromAdmin(reply, False)
         pointName = msg.text
 
-        self.logger.debug('saving point:' + str((msg.chat.id, pointName, pointCity)))
+        self.logger.debug('saving point:' + str((msg.chat.id, pointType, pointName, pointCity)))
 
         if pointExists:
-            dbFunc.updatePoint(msg.chat.id, pointCity, pointName, workH)
+            dbFunc.updatePoint(msg.chat.id, pointCity, pointName, workH_global, pointType)
         else:
-            dbFunc.addNewPoint(msg.chat.id, pointCity, pointName, workH)
+            dbFunc.addNewPoint(msg.chat.id, pointCity, pointName, workH_global, pointType)
+        botTools.forawrdPointCreate(pointCity, pointType, pointName, workH_local, msg.from_user.id, msg.from_user.username)
         reply = self.bot.send_message(msg.chat.id, Replicas.ON_REGISTRATION_POINT, parse_mode="HTML")
         yield reply, True
 

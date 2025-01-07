@@ -38,6 +38,13 @@ def linkToTopic(threadId: int):
     return "https://t.me/c/" + str(Config.FORUM_CHAT)[4:] + "/" + str(threadId)
 
 
+def linkToUser(user_id: int):
+    return f"tg://user?id={user_id}"
+
+def genMention(tg_id:int, nickname:str):  # returns message in html parse mod
+    return f"<a href = 'tg://user?id={tg_id}'> @{nickname} </a>"
+
+
 def redirectMsg(msg: telebot.types.Message, header, **kwargs) -> list[
     Callable[[int, int | None], telebot.types.Message | list[telebot.types.Message]]
 ]:
@@ -116,7 +123,7 @@ def askWithKeyboard(chatId, header: str, answerList: list, onlyAdmin: bool) -> G
     return ansIndex
 
 
-def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool) -> Generator[
+def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: bool, **send_msg_kwargs) -> Generator[
     tuple[telebot.types.Message, bool],
     telebot.types.Message,
     int
@@ -124,13 +131,13 @@ def askToChoice(chatId, replyId, replyMarkUp, header, answerList, onlyAdmin: boo
     text = header
     for i in range(len(answerList)):
         text += '\n' + str(i + 1) + ': ' + answerList[i]
-    reply = bot.send_message(chatId, text, reply_markup=replyMarkUp, reply_to_message_id=replyId)
+    reply = bot.send_message(chatId, text, reply_markup=replyMarkUp, reply_to_message_id=replyId, **send_msg_kwargs)
 
     answer = ''
     while answer not in answerList and not (answer.isdigit() and 0 < int(answer) <= len(answerList)):
         if answer:
             reply = bot.send_message(chatId, Replicas.INCORECT_FORMAT, reply_markup=replyMarkUp,
-                                     reply_to_message_id=replyId)
+                                     reply_to_message_id=replyId, **send_msg_kwargs)
 
         if onlyAdmin:
             msg = yield from waitRelpyFromAdmin(reply, False)
@@ -165,10 +172,11 @@ def addComment(chatId, postId, msgFuncs):
 
 #   - post message, save in DB
 def addNewTask(client: dbFunc.Client, postMsg: telebot.types.Message):
-    clientChannel = bot.get_chat(client.bind).linked_chat_id
+    clientChannel = bot.get_chat(client.bind_id).linked_chat_id
     header = Replicas.NEW_TASK.format(name=client.name)
 
     cbList = redirectMsg(postMsg, header)
+    print("client channel" + str(clientChannel))
     post = cbList[0](clientChannel, None)
     replyId = post.message_id if type(post) is telebot.types.Message else post[0].message_id  # check on media group
     pendingPostMsgs.newAwait(clientChannel, replyId)
@@ -220,6 +228,16 @@ def startFrorward(clientCity: str, clientName: str, pointName):
     return topic.message_thread_id
 
 
+def forawrdPointCreate(pointCity: str, pointType: Config.PointType, pointName: str, workHours: str, admin_id: int, admin_name:str):
+    bot.send_message(Config.FORUM_CHAT,
+                     Replicas.NOTIFY_REGISTRATION_POINT.format(city=pointCity,
+                                                               type=str(pointType),
+                                                               name=pointName,
+                                                               work_hours=workHours,
+                                                               admin_link=genMention(admin_id, admin_name),),
+                     parse_mode="HTML")
+
+
 @maybeTopicNotExistsDecorator
 def endFrorward(threadId, clientId):
     inline_to_talk = telebot.types.InlineKeyboardMarkup()
@@ -250,9 +268,9 @@ def forwardMessage(threadId: int, msg: telebot.types.Message):
 
 @maybeTopicNotExistsDecorator
 def forwardRedir(threadId: int, consultant: str, pointCity: str, pointName: str,
-                 postMsg):  # TODO send new post text
+                 postMsg):
     bot.send_message(Config.FORUM_CHAT,
                      Replicas.TASK_REDIRECT_WATCHERS.format(consultant=consultant, newCity=pointCity,
                                                             newGroup=pointName),
-                     message_thread_id=threadId)
+                     message_thread_id=threadId, parse_mode='HTML')
     forwardMessage(threadId, postMsg)

@@ -5,6 +5,9 @@ import sqlite3
 import threading
 import queue
 import logging
+from typing import Generator
+
+from constants.Config import PointType
 from locLibs import reminders, dataCaching
 import time
 from sys import argv as sys_argv
@@ -35,6 +38,7 @@ if __name__ == "__main__":
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         city TEXT NOT NULL,
+        clientType INTEGER NOT NULL,
         bind INTEGER
     );""")
     dbConn.commit()
@@ -55,7 +59,8 @@ if __name__ == "__main__":
         name TEXT NOT NULL,
         workH TEXT DEFAULT NULL,
         ansCnt INTEGER DEFAULT 0,
-        rateSm INTEGER DEFAULT 0
+        rateSm INTEGER DEFAULT 0,
+        type INTEGER NOT NULL
     );""")
     dbConn.commit()
 
@@ -64,9 +69,11 @@ if __name__ == "__main__":
         clientId INTEGER,
         closeTime INTEGER
     );
-    CREATE INDEX topic_index ON ClosedTasks(topicId);
-    CREATE INDEX clients_index ON ClosedTasks(clientId);
     """)
+    dbConn.commit()
+    dbCurr.execute("""CREATE INDEX IF NOT EXISTS topic_index ON ClosedTasks(topicId);""")
+    dbConn.commit()
+    dbCurr.execute("""CREATE INDEX IF NOT EXISTS clients_index ON ClosedTasks(clientId);""")
     dbConn.commit()
 
     print("done")
@@ -78,7 +85,11 @@ class Client:
     id: int
     name: str
     city: str
-    bind: int
+    client_type: PointType
+    bind_id: int
+
+    def __post_init__(self):
+        bind_type = PointType(self.client_type)
 
 
 @dataclasses.dataclass
@@ -106,26 +117,40 @@ class Point:
     workH: str
     ansCnt: int
     rateSm: int
+    type: PointType
+
+    def __post_init__(self):
+        self.type = PointType(self.type)
 
 
+@dataclasses.dataclass
 class Task:
     clientId: int
     groupId: int
     postId: int
     topicId: int
-    activeIds: list[int]
+    activeIds: list[int] | str
     lastActiveTime: int
     birthTime: int
 
-    def __init__(self, clientId: int, groupId: int, postId: int, topicId: int, activeIds: str, lastActiveTime: int,
-                 birthTime: int):
-        self.clientId = int(clientId)
-        self.groupId = int(groupId)
-        self.postId = int(postId)
-        self.topicId = int(topicId)
-        self.activeIds = list(map(int, activeIds.split(';')[:-1]))
-        self.lastActiveTime = int(lastActiveTime)
-        self.birthTime = int(birthTime)
+    def __post_init__(self) -> None:
+        if type(self.activeIds) is str:
+            self.activeIds = list(map(int, self.activeIds.split(';')[:-1]))
+
+
+@dataclasses.dataclass
+class CityPoints:
+    retail: Point | None
+    wholesale: Point | None
+    service_stations: list[Point]
+
+    def __iter__(self)-> Generator[Point, None, None]:
+        if self.retail:
+            yield self.retail
+        if self.wholesale:
+            yield self.wholesale
+        for ss in self.service_stations:
+            yield ss
 
 
 # -block list functions
@@ -324,31 +349,50 @@ def getAllData(tableName: str, reqRows: tuple | None = None, loop: SqlLoop = mai
 
 
 # point requests
-def __getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
-    comm = ('SELECT id FROM points',)
-    return set(map(lambda x: x[0], loop.addTask(comm, lambda dbCur: dbCur.fetchall()).wait()))
+def __getPointsDict(loop: SqlLoop = mainSqlLoop) -> dict[int, Point]:
+    comm = ('SELECT * FROM Points',)
+    return dict(map(lambda x: (x[0], Point(*x)), loop.addTask(comm, lambda dbCur: dbCur.fetchall()).wait()))
 
 
-cachedPointsSet = dataCaching.CachedData(__getPointsIdsSet)
+cachedPointsDict = dataCaching.CachedData(__getPointsDict)
 
 
 def getPointsIdsSet(loop: SqlLoop = mainSqlLoop):
-    return cachedPointsSet.get()
+    return cachedPointsDict.get()
 
 
-def addNewPoint(groupId, city, name, workHours: str, loop: SqlLoop = mainSqlLoop):
-    cachedPointsSet.mark()
+def getPointById(chatId: int, loop: SqlLoop = mainSqlLoop) -> Point | None:
+    return cachedPointsDict.get().get(chatId, None)
+
+
+def getPointsByCity(city: str, loop: SqlLoop = mainSqlLoop) -> CityPoints:
+    occurrences = CityPoints(None, None, [])
+    for indf, point in cachedPointsDict.get().items():
+        if point.city == city:
+            if point.type is PointType.retail:
+                occurrences.retail = point
+            if point.type is PointType.wholesale:
+                occurrences.wholesale = point
+            if point.type is PointType.service_station:
+                occurrences.service_stations.append(point)
+    return occurrences
+
+
+def addNewPoint(groupId: int, city: str, name: str, workHours: str, pointType: PointType, loop: SqlLoop = mainSqlLoop):
+    cachedPointsDict.mark()
 
     addRegCity(city)
     reminders.addPoint(groupId, workHours)
 
     addTask = (
-        'INSERT INTO Points (id, city, name, workH) VALUES (?, ?, ?, ?)', (groupId, city, name, workHours))
+        'INSERT INTO Points (id, city, name, workH, type) VALUES (?, ?, ?, ?, ?)',
+        (groupId, city, name, workHours, pointType.value))
     loop.addTask(addTask, lambda dbCur1: dbConn.commit())
 
 
-def updatePoint(groupId: int, city: str, name: str, workHours: str, loop: SqlLoop = mainSqlLoop) -> None:
-    cachedPointsSet.mark()
+def updatePoint(groupId: int, city: str, name: str, workHours: str, pointType: PointType,
+                loop: SqlLoop = mainSqlLoop) -> None:
+    cachedPointsDict.mark()
 
     def onProc(dbCur: sqlite3.Cursor):
         prevCity = dbCur.fetchone()[0]
@@ -357,7 +401,8 @@ def updatePoint(groupId: int, city: str, name: str, workHours: str, loop: SqlLoo
         addRegCity(city)
 
         updTask = (
-            'UPDATE Points SET city = ?, name = ?, workH = ? WHERE id = ?', (city, name, workHours, groupId)
+            'UPDATE Points SET city = ?, name = ?, workH = ?, type = ? WHERE id = ?',
+            (city, name, workHours, pointType.value, groupId)
         )
         loop.addTask(updTask, lambda dbCur1: dbConn.commit())
 
@@ -371,7 +416,7 @@ def isPointClear(groupId: int, loop: SqlLoop = mainSqlLoop) -> bool:  # returns 
 
 
 def delPoint(groupId: int, loop: SqlLoop = mainSqlLoop) -> None:
-    cachedPointsSet.mark()
+    cachedPointsDict.mark()
     reminders.delPoint(groupId)
 
     getCityTask = ('SELECT city FROM Points WHERE id = ?', (groupId,))
@@ -381,24 +426,6 @@ def delPoint(groupId: int, loop: SqlLoop = mainSqlLoop) -> None:
     loop.addTask(getCityTask, lambda dbCur: delRegCity(dbCur.fetchone()[0]))
     loop.addTask(delPointTask, lambda dbCur: dbConn.commit())
     loop.addTask(delClientTask, lambda dbCur: dbConn.commit())
-
-
-def getPointsByCity(city, loop: SqlLoop = mainSqlLoop) -> list[Point]:
-    command = ('SELECT * FROM Points WHERE city=?', (city,))
-    task = loop.addTask(command, lambda dbCur: dbCur.fetchall())
-    notParsedData = task.wait()
-
-    pointsList = []
-    for point_tuple in notParsedData:
-        pointsList.append(Point(*point_tuple))
-    return pointsList
-
-
-def getPointById(chatId, loop: SqlLoop = mainSqlLoop) -> Point | None:
-    command = ('SELECT * FROM Points WHERE id=?', (chatId,))
-    task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
-    data = task.wait()
-    return Point(*data) if data else None
 
 
 def addRatePoint(chatId, newRate, loop: SqlLoop = mainSqlLoop) -> None:
@@ -417,31 +444,32 @@ def addRatePoint(chatId, newRate, loop: SqlLoop = mainSqlLoop) -> None:
 def addNewClient(client: Client, loop: SqlLoop = mainSqlLoop) -> None:
     def onProc(dbCur):
         if dbCur.fetchone() is None:  # create new client
-            addTask = ('INSERT INTO Clients (id, name, city, bind) VALUES (?, ?, ?, ?)',
-                       (client.id, client.name, client.city, client.bind))
+            addTask = ('INSERT INTO Clients (id, name, city, clientType, bind) VALUES (?, ?, ?, ?, ?)',
+                       (client.id, client.name, client.city, client.client_type.value, client.bind_id))
             loop.addTask(addTask, lambda dbCur1: dbConn.commit())
         else:  # upadate info
-            updTask = ('UPDATE Clients SET name = ?, city = ?, bind = ? WHERE id = ?',
-                       (client.name, client.city, client.bind, client.id))
+            updTask = ('UPDATE Clients SET name = ?, city = ?, clientType = ?, bind = ? WHERE id = ?',
+                       (client.name, client.city, client.client_type.value, client.bind_id, client.id))
             loop.addTask(updTask, lambda dbCur1: dbConn.commit())
 
     checkTask = ('SELECT id FROM Clients WHERE id = ?', (client.id,))
     loop.addTask(checkTask, onProc)
 
 
-def getClientById(userId, loop: SqlLoop = mainSqlLoop) -> Client | None:
+def getClientById(userId: int, loop: SqlLoop = mainSqlLoop) -> Client | None:
     command = ('SELECT * FROM Clients WHERE id=?', (userId,))
     task = loop.addTask(command, lambda dbCur: dbCur.fetchone())
     data = task.wait()
     return Client(*data) if data else None
 
 
-def changeClientBind(clientId, newCity, newBind, loop: SqlLoop = mainSqlLoop):
-    command = ('UPDATE Clients SET city = ?, bind = ? WHERE id = ?', (newCity, newBind, clientId))
+def changeClientBind(clientId: int, newCity: str, newBindType: PointType, newBindId: int, loop: SqlLoop = mainSqlLoop):
+    command = ('UPDATE Clients SET city = ?, clientType = ?, bind = ? WHERE id = ?',
+               (newCity, newBindType.value, newBindId, clientId))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 
 
-def delClient(clientId, loop: SqlLoop = mainSqlLoop):
+def delClient(clientId: int, loop: SqlLoop = mainSqlLoop):
     command = ('DELETE FROM Clients WHERE id=?', (clientId,))
     loop.addTask(command, lambda dbCur: dbConn.commit())
 

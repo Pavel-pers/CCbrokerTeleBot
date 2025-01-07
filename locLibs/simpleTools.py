@@ -31,7 +31,3 @@ def distToTimeSgm(timeSegmentGmt: str, timeS=None):
 
 
 workH_pattern = compile('(?:[01][0-9]|2[0-3]):[0-5][0-9]-(?:[01][0-9]|2[0-3]):[0-5][0-9]$')
-
-
-def genMention(name, tg_id):  # returns message in html parse mod
-    return f"<a href = 'tg://user?id={tg_id}'> {name} </a>"

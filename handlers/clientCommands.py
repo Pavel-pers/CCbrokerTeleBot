@@ -7,11 +7,13 @@ from locLibs import dbFunc, botTools, simpleClasses
 from handlers import threadWorker
 from handlers.decorators.stageFileters import regClient as regDecorator
 from constants import Replicas, Emoji
+from constants.Config import PointType
 
 
 class Handlers(simpleClasses.Handlers):
     # reg client functions
-    def setupClientGen(self, msg: telebot.types.Message, client_name=None, client_city=None, client_bind=None) -> \
+    def setupClientGen(self, msg: telebot.types.Message, client_name: str = None, client_city: str = None,
+                       client_bind: tuple[PointType, int] | None = None) -> \
             Generator[
                 tuple[telebot.types.Message, bool],
                 telebot.types.Message,
@@ -29,12 +31,40 @@ class Handlers(simpleClasses.Handlers):
             client_city = cityList[cityIndex]
 
         if client_bind is None:
-            pointList = dbFunc.getPointsByCity(client_city)
-            pointIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_POINT_CLIENT,
-                                                             list(map(lambda x: x.name, pointList)), False)
-            client_bind = pointList[pointIndex].id
+            pointsInCity = dbFunc.getPointsByCity(client_city)
+            pointTypesList = []
+            if pointsInCity.retail is not None:
+                pointTypesList.append(Replicas.RETAIL)
+            if pointsInCity.wholesale is not None:
+                pointTypesList.append(Replicas.WHOLESALE)
+            if len(pointsInCity.service_stations) != 0:
+                pointTypesList.append(Replicas.SERVICE_STATION)
 
-        client = dbFunc.Client(msg.from_user.id, client_name, client_city, client_bind)
+            pointTypeIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_POINT_TYPE_CLIENT,
+                                                                 pointTypesList, False)
+            clientType = Replicas.POINT_TYPE_DICT[pointTypesList[pointTypeIndex]]
+            clientBindId = None
+            if clientType is PointType.service_station:
+                if len(pointsInCity.service_stations) > 1:
+                    service_stations = []
+                    for ss in pointsInCity.service_stations:
+                        service_stations.append(ss.name)
+
+                    serviceIndex = yield from botTools.askWithKeyboard(msg.chat.id, Replicas.ASK_POINT_PLACE_CLIENT,
+                                                                       service_stations, False)
+                    clientBindId = pointsInCity.service_stations[serviceIndex].id
+                else:
+                    clientBindId = pointsInCity.service_stations[0].id
+            if clientType is PointType.retail:
+                clientBindId = pointsInCity.retail.id
+            if clientType is PointType.wholesale:
+                clientBindId = pointsInCity.wholesale.id
+
+            client_bind = (clientType, clientBindId)
+        else:
+            clientType, clientBindId = client_bind
+
+        client = dbFunc.Client(msg.from_user.id, client_name, client_city, clientType, clientBindId)
         self.logger.debug('saving client:' + str((msg.from_user.id, client)))
         dbFunc.addNewClient(client)
 
@@ -75,7 +105,7 @@ class Handlers(simpleClasses.Handlers):
             self.bot.send_message(msg.chat.id, Replicas.WELCOME_CLIENT)
             return
 
-        renameProc = self.setupClientGen(msg, client_city=client.city, client_bind=client.bind)
+        renameProc = self.setupClientGen(msg, client_city=client.city, client_bind=client.bind_id)
         reply, stopReg = next(renameProc)
         if not stopReg:
             self.bot.register_next_step_handler(reply, self.setupProducer, renameProc)

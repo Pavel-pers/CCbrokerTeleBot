@@ -1,4 +1,5 @@
 from constants import Emoji
+from constants.Config import PointType
 
 UNDEFINED_ERROR = 'Простите, вы не можете сделать это сейчас {0}'.format(Emoji.SORRY_FACE)
 INCORECT_CHOICE = 'Выбранный вариант не найден{0}, пожалуйста, выберите вариант из предложенного списка {1}'.format(
@@ -24,8 +25,8 @@ ON_GET_NAME = 'Очень приятно'
 ASK_NAME_CLIENT = 'Пожалуйста, назовите свое имя{0}\n{1} Вы можете изменить его потом с помощью /rename'.format(
     Emoji.PLEASE_HANDS, Emoji.ADVICE)
 ASK_CITY_CLIENT = 'Назовите свой город{0}'.format(Emoji.CITY_PHOTO)
-ASK_POINT_CLIENT = 'Нашли несколько точек в вашем городе {0}\nК какой вы хотите обратиться? \n{1} Вы можете в любой момент изменить свой город с помощью комманды /change_point'.format(
-    Emoji.SEARCH, Emoji.ADVICE)
+ASK_POINT_TYPE_CLIENT = f'Выберите тип услуги который вы хотите получить\n\n {Emoji.ADVICE}Вы сможете изменить выбор с помощью /change_bind'
+ASK_POINT_PLACE_CLIENT = f'Нашли несколько СТО в вашем городе {Emoji.SEARCH}\n\n{Emoji.ADVICE}Вы сможете изменить место, с помошью /change_bind'
 ON_REGISTRATION_CLIENT = 'Большое спасибо, было очень приятно с вами познакомиться{0}\nКакой вопрос вас интересует?'.format(
     Emoji.WINKY_FACE)
 ABOUT_CHANGE_DATA_CLIENT = 'Вы можете изменить данные о выбраной точки {0}:\nнажмите /change_point\nМожете изменить ваше имя {1}:\nнажмите /rename'.format(
@@ -44,11 +45,18 @@ WELCOME_POINT = 'Здравствуйте {0}. Я буду помогать ва
     Emoji.HELLO_HAND)
 ASK_WORK_HOURS_POINT = 'Пожалуйста, сообщите время работы точки {0}, когда вы сможете отвечать клиентам {1}?\nНапишите в формате: ЧЧ:ММ-ЧЧ:ММ\n(напишите часовом поясе вашей точки)'.format(
     Emoji.CLOCK, Emoji.PERSON)
+ASK_POINT_TYPE = 'Каких клиентов будет принимать точка? ' + Emoji.TARGET
 ASK_NAME_POINT = 'Какое название будет у точки{0}\n(оно будет высвечиваться при выборе клинтом места, куда будет отправлен его вопрос{1})'.format(
     Emoji.LABEL, Emoji.INCOMING_MESSAGE
 )
 ON_REGISTRATION_POINT = 'Спасибо! Вы прошли регистрацию {0}\nСкоро в канале будут появлятся вопросы {1}.\n\nЧтобы изменить данные{2} введите /start\nДля удаления{3} группы введите /delete_point\n\n{4}<i>Чтобы пригласить консультанта введите</i> /invite ...'.format(
     Emoji.CELEBRATION, Emoji.ENVELOPE, Emoji.PENCIL, Emoji.FIRE, Emoji.ADVICE)
+NOTIFY_REGISTRATION_POINT = Emoji.CELEBRATION + 'Зарегистрирована новая точка\n' + \
+    Emoji.CITY_PHOTO + 'Город: <b>{city}</b>\n' + \
+    Emoji.TARGET + 'Тип: <b>{type}</b>\n' + \
+    Emoji.LABEL + 'Название: <b>{name}</b>\n' + \
+    Emoji.CLOCK + 'Время Работы: <b>{work_hours}</b>\n' + \
+    Emoji.STAR + "<b>Админинстратор:</b> {admin_link}"
 
 NOT_ALL_ANSWERED = 'Простите{0}, операция не может быть выполнена, потому что не все вопросы закрыты{1}'.format(
     Emoji.SORRY_FACE, Emoji.OK_BUTTON)
@@ -136,3 +144,8 @@ FROM_ADMIN_MESSAGE = f"<i>Сообщение от админинстраторо
 NOT_FOUND_REFLECTION = f"Извините не найден диалог {Emoji.SEARCH}, может быть он уже закрыт?\n\n{Emoji.ADVICE}Попробуйте нажать на кнопку после конца диалога"
 EDIT_ON_REFLECTION = f"Диалог продолжается{Emoji.OK_BUTTON}\n{Emoji.ADVICE}Пишите в этот же чат чтобы связаться с покупателем"
 INLINE_BUTTON_REFLECTION = f"Нажите чтобы продолжить диалог{Emoji.PENCIL}"
+# -point types
+SERVICE_STATION = f"СТО {Emoji.REPAIR}"
+WHOLESALE = f"ОПТ {Emoji.BOX}"
+RETAIL = f"Розница {Emoji.CAR}"
+POINT_TYPE_DICT: dict[str, PointType] = {SERVICE_STATION: PointType.service_station, WHOLESALE: PointType.wholesale, RETAIL: PointType.retail}

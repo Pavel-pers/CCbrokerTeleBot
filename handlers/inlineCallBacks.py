@@ -63,7 +63,7 @@ class CbHandlers(Handlers):
                 topicId = botTools.startFrorward(client.city, client.name, pointName)
                 botTools.forwardMessage(topicId, msg)
                 dbFunc.addNewTask(client.id, channel, postId, topicId)
-                reminders.regReminder(client.bind, client.id, client.name)
+                reminders.regReminder(client.bind_id, client.id, client.name)
         else:
             raise 'inline callback data error'
 

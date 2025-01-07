@@ -50,7 +50,6 @@ def startListen(bot: telebot.TeleBot, botLogger: logging.Logger, ignoreErrs: boo
             # TODO test on same names
             channel_id = bot.get_chat(msg.chat.id).linked_chat_id
             channel_link = bot.get_chat(channel_id).invite_link
-            print(channel_link)
             bot.send_message(msg.chat.id, Replicas.GENERATE_LINK.format(channel_link, invite_link), parse_mode='HTML')
 
     @bot.message_handler(commands=['set_name'],
